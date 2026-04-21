@@ -62,6 +62,7 @@ type Lead = {
   reminder_time: string | null
   closed_at: string | null
   industry: string | null
+  notes: string | null
 }
 
 type Sale = {
@@ -180,7 +181,7 @@ export default function LeadDetailPage({ params }: PageProps) {
 
   // Edit mode state
   const [isEditing, setIsEditing] = useState(false)
-  const [editForm, setEditForm] = useState({ business_name: '', contact_name: '', phone: '', email: '', source: '', industry: '' })
+  const [editForm, setEditForm] = useState({ business_name: '', contact_name: '', phone: '', email: '', source: '', industry: '', notes: '' })
   const [savingEdit, setSavingEdit] = useState(false)
   const [editMsg, setEditMsg] = useState<{ type: 'success' | 'error', text: string } | null>(null)
 
@@ -1184,7 +1185,8 @@ export default function LeadDetailPage({ params }: PageProps) {
       phone: lead.phone || '',
       email: lead.email || '',
       source: lead.source || '',
-      industry: lead.industry || ''
+      industry: lead.industry || '',
+      notes: lead.notes || ''
     })
     setEditMsg(null)
     setIsEditing(true)
@@ -1219,7 +1221,8 @@ export default function LeadDetailPage({ params }: PageProps) {
         phone: editForm.phone.trim() || null,
         email: editForm.email.trim() || null,
         source: editForm.source.trim() || null,
-        industry: editForm.industry || null
+        industry: editForm.industry || null,
+        notes: editForm.notes.trim() || null
       })
       .eq('id', id)
 
@@ -1233,7 +1236,8 @@ export default function LeadDetailPage({ params }: PageProps) {
         phone: editForm.phone.trim() || null,
         email: editForm.email.trim() || null,
         source: editForm.source.trim() || null,
-        industry: editForm.industry || null
+        industry: editForm.industry || null,
+        notes: editForm.notes.trim() || null
       })
       setEditMsg({ type: 'success', text: 'Lead actualizada correctamente' })
       
@@ -1645,6 +1649,15 @@ export default function LeadDetailPage({ params }: PageProps) {
                         <option value="servicios">Servicios</option>
                         <option value="otro">Otro</option>
                       </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Nota Principal (o Importada)</label>
+                      <textarea
+                        value={editForm.notes}
+                        onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))}
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 bg-gray-50 focus:bg-white transition-colors resize-none h-24"
+                        placeholder="Nota principal del lead..."
+                      />
                     </div>
                   </div>
 
@@ -2257,7 +2270,23 @@ export default function LeadDetailPage({ params }: PageProps) {
               </div>
 
               <div className="space-y-4">
-                {notes.length === 0 ? (
+                {/* Nota principal del Lead (Importada o del registro inicial) */}
+                {lead.notes && (
+                  <div className="bg-blue-50/30 p-5 rounded-2xl border border-blue-100/50 group relative">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-6 h-6 rounded-lg bg-blue-100 flex items-center justify-center text-blue-600">
+                        <History size={14} />
+                      </div>
+                      <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Nota del Registro Principal</span>
+                    </div>
+                    <p className="text-gray-800 text-sm whitespace-pre-wrap leading-relaxed">{lead.notes}</p>
+                    <div className="mt-4 pt-3 border-t border-blue-100/30 text-[10px] text-blue-400 font-medium italic">
+                      Esta nota fue guardada al momento de crear o importar el lead.
+                    </div>
+                  </div>
+                )}
+
+                {notes.length === 0 && !lead.notes ? (
                   <div className="text-center py-12 text-gray-400">
                     <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-gray-100">
                       <FileText size={32} className="opacity-20" />
