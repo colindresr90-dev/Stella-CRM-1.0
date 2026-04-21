@@ -1803,6 +1803,7 @@ export default function LeadDetailPage({ params }: PageProps) {
                                      disabled={isReassigning}
                                      className="w-full pl-10 pr-10 py-2.5 bg-white rounded-xl text-[11px] font-black uppercase tracking-widest border border-gray-200 outline-none focus:ring-8 focus:ring-blue-500/5 transition-all appearance-none cursor-pointer hover:bg-gray-50 shadow-sm"
                                   >
+                                     <option value="">Sin Asignar</option>
                                      {allProfiles.map(p => (
                                         <option key={p.id} value={p.id}>{p.name} {p.id === user?.id ? '(Yo)' : ''}</option>
                                      ))}

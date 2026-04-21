@@ -1,0 +1,25 @@
+﻿                    <div className="flex-1">
+                      <label className="block text-[10px] font-black uppercase text-on-surface-variant tracking-widest mb-1.5 ml-1">
+                        Asignar A
+                      </label>
+                      <div className="relative group">
+                         <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-on-surface-variant group-focus-within:text-primary transition-colors">
+                           <UserPlus size={16} />
+                         </div>
+                         <select 
+                           value={formData.assigned_to}
+                           onChange={(e) => setFormData(prev => ({ ...prev, assigned_to: e.target.value }))}
+                           className="w-full pl-12 pr-4 py-3 bg-surface-container-high rounded-xl text-sm font-bold border border-outline-variant/10 focus:ring-4 focus:ring-primary/10 outline-none transition-all appearance-none cursor-pointer"
+                         >
+                           {allProfiles.map(p => (
+                             <option key={p.id} value={p.id}>{p.name} {p.id === user?.id ? '(Yo)' : ''}</option>
+                           ))}
+                         </select>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Notas Iniciales (Opcional)</label>
+                  <textarea
+                    name="notes"
