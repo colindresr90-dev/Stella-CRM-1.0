@@ -30,7 +30,6 @@ type Lead = {
   reminder_time?: string | null
   reminders?: Reminder[]
   industry?: string | null
-  tags?: string[] | null
 }
 
 type Reminder = {
@@ -506,7 +505,6 @@ export default function LeadsPage() {
       source: formData.source || null,
       notes: formData.notes || null,
       industry: industryLower || null,
-      tags: industryLower ? [industryLower] : [],
       status: 'nuevo',
       assigned_to: finalAssignment,
       created_by: user.id

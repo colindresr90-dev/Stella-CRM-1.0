@@ -62,7 +62,6 @@ type Lead = {
   reminder_time: string | null
   closed_at: string | null
   industry: string | null
-  tags: string[] | null
 }
 
 type Sale = {
@@ -1220,19 +1219,7 @@ export default function LeadDetailPage({ params }: PageProps) {
         phone: editForm.phone.trim() || null,
         email: editForm.email.trim() || null,
         source: editForm.source.trim() || null,
-        industry: editForm.industry || null,
-        tags: (() => {
-          const industryLower = (editForm.industry || '').toLowerCase()
-          const industryOptionsList = ['barberia', 'restaurante', 'ecommerce', 'salud', 'servicios', 'otro']
-          let currentTags = lead.tags || []
-          // Remove any existing tags that are in the industry options list
-          currentTags = currentTags.filter(t => !industryOptionsList.includes(t.toLowerCase()))
-          // Add the new industry tag if selected and not already present
-          if (industryLower) {
-            currentTags = Array.from(new Set([...currentTags, industryLower]))
-          }
-          return currentTags
-        })()
+        industry: editForm.industry || null
       })
       .eq('id', id)
 
@@ -1246,17 +1233,7 @@ export default function LeadDetailPage({ params }: PageProps) {
         phone: editForm.phone.trim() || null,
         email: editForm.email.trim() || null,
         source: editForm.source.trim() || null,
-        industry: editForm.industry || null,
-        tags: (() => {
-          const industryLower = (editForm.industry || '').toLowerCase()
-          const industryOptionsList = ['barberia', 'restaurante', 'ecommerce', 'salud', 'servicios', 'otro']
-          let currentTags = lead.tags || []
-          currentTags = currentTags.filter(t => !industryOptionsList.includes(t.toLowerCase()))
-          if (industryLower) {
-            currentTags = Array.from(new Set([...currentTags, industryLower]))
-          }
-          return currentTags
-        })()
+        industry: editForm.industry || null
       })
       setEditMsg({ type: 'success', text: 'Lead actualizada correctamente' })
       
@@ -1737,15 +1714,7 @@ export default function LeadDetailPage({ params }: PageProps) {
                           <span className="text-sm">Rubro: <span className="font-bold text-gray-900 capitalize">{lead.industry}</span></span>
                         </div>
                       )}
-                      {lead.tags && lead.tags.length > 0 && (
-                        <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100 mt-2">
-                          {lead.tags.map(tag => (
-                            <span key={tag} className="px-2 py-0.5 bg-blue-50 text-blue-700 text-[10px] font-bold rounded-md border border-blue-100 capitalize">
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      )}
+                      
                       <div className="flex items-center gap-3 text-gray-400 text-xs pt-2 border-t border-gray-100 flex-wrap">
                         <div className="flex items-center gap-1">
                           <Clock size={14} />
