@@ -69,7 +69,8 @@ export default function LeadsPage() {
     source: "",
     notes: "",
     assigned_to: "",
-    industry: ""
+    industry: "",
+    package: ""
   })
   const [submitting, setSubmitting] = useState(false)
   const [msg, setMsg] = useState<{ type: 'error' | 'success', text: string } | null>(null)
@@ -505,6 +506,7 @@ export default function LeadsPage() {
       source: formData.source || null,
       notes: formData.notes || null,
       industry: industryLower || null,
+      package: formData.package || null,
       status: 'nuevo',
       assigned_to: finalAssignment,
       created_by: user.id
@@ -532,6 +534,7 @@ export default function LeadsPage() {
         source: "",
         notes: "",
         industry: "",
+        package: "",
         assigned_to: user.id
       })
       setShowForm(false)
@@ -614,26 +617,26 @@ export default function LeadsPage() {
   }
 
   return (
-    <div className="space-y-10">
-      <div className="flex items-center justify-between mb-8">
+    <div className="space-y-6 sm:space-y-10">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
           <div>
-            <h1 className="text-2xl font-semibold text-gray-900">Leads</h1>
-            <p className="mt-1 text-sm text-gray-500">Gestiona tus leads y oportunidades.</p>
+            <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Leads</h1>
+            <p className="mt-1 text-xs sm:text-sm text-gray-500">Gestiona tus leads y oportunidades.</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
             {(isAdmin || permissions.includes('export_leads_csv')) && (
               <button
                 onClick={() => setShowExportModal(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-white text-gray-700 border border-gray-300 text-sm font-medium rounded-lg shadow-sm hover:bg-gray-50 transition-all"
+                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-white text-gray-700 border border-gray-300 text-xs sm:text-sm font-medium rounded-lg shadow-sm hover:bg-gray-50 transition-all"
               >
-                <Download size={16} /> Exportar CSV
+                <Download size={14} className="sm:w-4 sm:h-4" /> <span className="whitespace-nowrap">Exportar CSV</span>
               </button>
             )}
             <button
               onClick={() => setShowForm(!showForm)}
-              className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg shadow-sm hover:bg-blue-700 transition-all"
+              className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 sm:px-6 py-2 bg-blue-600 text-white text-xs sm:text-sm font-medium rounded-lg shadow-sm hover:bg-blue-700 transition-all"
             >
-              <Plus size={16} /> {showForm ? 'Cancelar' : 'Nuevo Lead'}
+              <Plus size={14} className="sm:w-4 sm:h-4" /> <span className="whitespace-nowrap">{showForm ? 'Cancelar' : 'Nuevo Lead'}</span>
             </button>
           </div>
         </div>
@@ -752,6 +755,23 @@ export default function LeadsPage() {
                       <option value="otro">Otro</option>
                     </select>
                   </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Paquete de Interés (Opcional)</label>
+                    <select
+                      name="package"
+                      value={formData.package}
+                      onChange={(e) => setFormData(prev => ({ ...prev, package: e.target.value }))}
+                      className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all text-sm text-black appearance-none"
+                    >
+                      <option value="">Seleccionar paquete...</option>
+                      <option value="Landing Page">Landing Page</option>
+                      <option value="Sitio Web Empresarial">Sitio Web Empresarial</option>
+                      <option value="Sitio Web para Generación de Clientes">Sitio Web para Generación de Clientes</option>
+                      <option value="Sitio Web con Ecommerce">Sitio Web con Ecommerce</option>
+                      <option value="Sitio Web Interactivo con Reservas">Sitio Web Interactivo con Reservas</option>
+                      <option value="Otro">Otro</option>
+                    </select>
+                  </div>
                   {(isAdmin || permissions.includes('create_and_assign_leads')) && (
                     <div className="flex-1">
                       <label className="block text-[10px] font-black uppercase text-on-surface-variant tracking-widest mb-1.5 ml-1">
@@ -846,7 +866,7 @@ export default function LeadsPage() {
               <p className="text-gray-500 text-sm">No hay leads encontrados.</p>
             </div>
           ) : (
-            <div className="overflow-visible relative min-h-[300px]">
+            <div className="overflow-x-auto relative min-h-[300px]">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>

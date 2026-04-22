@@ -119,9 +119,15 @@ export default function SalesPage() {
   const fetchData = async (user = currentUser, role = userRole, currentPerms = permissions, onlyMine = showOnlyMine) => {
     setLoading(true)
     try {
-      // 1. Fetch Profiles
+      // 1. Fetch Profiles (Excluding CEOs)
       const { data: profilesData } = await supabase.from('profiles').select('id, name')
-      if (profilesData) setProfiles(profilesData)
+      if (profilesData) {
+        const filteredProfiles = profilesData.filter(p => 
+          !p.name.toLowerCase().includes('rodrigo') && 
+          !p.name.toLowerCase().includes('gerardo')
+        );
+        setProfiles(filteredProfiles)
+      }
        // 2. Fetch ALL Sales
       let salesQuery = supabase
         .from('sales')
@@ -445,18 +451,18 @@ export default function SalesPage() {
 
   return (
     <div className="space-y-10">
-      <div className="flex items-end justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-end justify-between gap-6">
         <div>
-          <h2 className="font-headline text-3xl font-extrabold text-on-background tracking-tight">Ventas</h2>
-          <p className="text-on-surface-variant text-sm mt-1">Resumen de ingresos y pipeline</p>
+          <h2 className="font-headline text-2xl sm:text-3xl font-extrabold text-on-background tracking-tight">Ventas</h2>
+          <p className="text-on-surface-variant text-xs sm:text-sm mt-1">Resumen de ingresos y pipeline</p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-2 sm:gap-3 w-full sm:w-auto">
           {/* Role Toggle for Admins or those with view_all_sales permission */}
           {(userRole === 'admin' || permissions.includes('view_all_sales')) && (
-            <div className="flex p-1 bg-surface-container-high rounded-xl border border-outline-variant/10">
+            <div className="flex p-1 bg-surface-container-high rounded-xl border border-outline-variant/10 flex-1 sm:flex-none">
               <button
                 onClick={() => setShowOnlyMine(false)}
-                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+                className={`flex-1 sm:px-4 py-2 rounded-lg text-[10px] sm:text-xs font-bold transition-all flex items-center justify-center gap-2 ${
                   !showOnlyMine 
                     ? 'bg-white text-primary shadow-sm' 
                     : 'text-on-surface-variant hover:text-on-surface hover:bg-white/50'
@@ -466,7 +472,7 @@ export default function SalesPage() {
               </button>
               <button
                 onClick={() => setShowOnlyMine(true)}
-                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+                className={`flex-1 sm:px-4 py-2 rounded-lg text-[10px] sm:text-xs font-bold transition-all flex items-center justify-center gap-2 ${
                   showOnlyMine 
                     ? 'bg-white text-primary shadow-sm' 
                     : 'text-on-surface-variant hover:text-on-surface hover:bg-white/50'
@@ -479,7 +485,7 @@ export default function SalesPage() {
 
           <button 
             onClick={() => setShowFiltersModal(true)}
-            className={`px-5 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 ${
+            className={`flex-1 sm:flex-none px-3 sm:px-5 py-2.5 rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
               (filterDateRange.from || filterPaymentStatus !== 'all' || filterAssignedUser !== 'all') 
                 ? 'bg-primary/10 text-primary border border-primary/20' 
                 : 'bg-surface-container-high text-on-surface hover:bg-surface-variant'
@@ -489,9 +495,9 @@ export default function SalesPage() {
           </button>
           <button 
             onClick={() => setShowLeadSelectModal(true)}
-            className="px-5 py-2.5 rounded-lg bg-gradient-to-br from-primary to-primary-container text-on-primary font-semibold text-sm shadow-md hover:shadow-lg transition-all flex items-center gap-2 transform active:scale-95"
+            className="flex-1 sm:flex-none px-3 sm:px-5 py-2.5 rounded-lg bg-gradient-to-br from-primary to-primary-container text-on-primary font-semibold text-xs sm:text-sm shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 transform active:scale-95"
           >
-            <Plus size={18} /> Nueva venta
+            <Plus size={18} /> <span className="whitespace-nowrap">Nueva venta</span>
           </button>
         </div>
       </div>
@@ -561,7 +567,7 @@ export default function SalesPage() {
               <CreditCard size={18} />
             </div>
           </div>
-          <div className="grid grid-cols-12 gap-4 px-8 pb-3 text-[10px] font-extrabold uppercase tracking-widest text-on-surface-variant border-b border-outline-variant/5">
+          <div className="hidden sm:grid grid-cols-12 gap-4 px-8 pb-3 text-[10px] font-extrabold uppercase tracking-widest text-on-surface-variant border-b border-outline-variant/5">
             <div className="col-span-4">Negocio / Contacto</div>
             <div className="col-span-3">Paquete</div>
             <div className="col-span-2">Monto</div>
@@ -572,23 +578,25 @@ export default function SalesPage() {
               <div 
                 key={sale.id} 
                 onClick={() => { setSelectedSaleDetail(sale); setShowSaleDetailModal(true); }}
-                className="grid grid-cols-12 gap-4 px-6 py-3 hover:bg-white rounded-2xl transition-all items-center group cursor-pointer border border-transparent hover:border-outline-variant/10"
+                className="flex flex-col sm:grid sm:grid-cols-12 gap-2 sm:gap-4 px-4 sm:px-6 py-4 sm:py-3 hover:bg-white rounded-2xl transition-all items-start sm:items-center group cursor-pointer border border-transparent hover:border-outline-variant/10 bg-surface-container-lowest/50 sm:bg-transparent mb-1"
               >
-                <div className="col-span-4">
+                <div className="col-span-4 w-full">
                   <p className="font-bold text-sm text-on-surface group-hover:text-primary transition-colors">{sale.lead?.business_name || 'Desconocido'}</p>
                   <p className="text-[10px] text-on-surface-variant font-medium">{sale.lead?.contact_name || 'Sin contacto'}</p>
                 </div>
                 <div className="col-span-3">
-                  <span className="text-[10px] font-bold px-2 py-0.5 bg-surface-container-highest rounded text-on-surface-variant uppercase">
+                  <span className="text-[9px] sm:text-[10px] font-bold px-2 py-0.5 bg-surface-container-highest rounded text-on-surface-variant uppercase">
                     {sale.package}
                   </span>
                 </div>
-                <div className="col-span-2">
+                <div className="col-span-2 flex justify-between sm:block w-full">
+                  <span className="text-[10px] font-bold text-on-surface-variant uppercase sm:hidden">Monto:</span>
                   <p className="font-bold text-sm text-on-surface">${sale.total_amount.toLocaleString()}</p>
                 </div>
-                <div className="col-span-3 text-right flex items-center justify-end gap-3">
+                <div className="col-span-3 w-full sm:text-right flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-0 border-outline-variant/5">
+                  <span className="text-[10px] font-bold text-on-surface-variant uppercase sm:hidden">Fecha:</span>
                   <p className="text-[10px] font-bold text-on-surface-variant">{new Date(sale.created_at).toLocaleDateString()}</p>
-                  <ChevronRight size={14} className="text-on-surface-variant opacity-0 group-hover:opacity-100 transition-all transform group-hover:translate-x-1" />
+                  <ChevronRight size={14} className="text-on-surface-variant hidden sm:block opacity-0 group-hover:opacity-100 transition-all transform group-hover:translate-x-1" />
                 </div>
               </div>
             ))}
@@ -637,8 +645,9 @@ export default function SalesPage() {
               </div>
               <div className="space-y-4">
                 {Object.entries(advancedMetrics.revenueByUser)
-                 .sort((a,b) => b[1] - a[1])
-                 .map(([userId, amount]) => {
+                  .filter(([userId]) => userId === 'Sin asignar' || profiles.some(p => p.id === userId))
+                  .sort((a,b) => b[1] - a[1])
+                  .map(([userId, amount]) => {
                    const profile = profiles.find(p => p.id === userId)
                    const percentage = (amount / metrics.totalVendido) * 100
                    return (

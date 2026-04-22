@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Stella CRM",
-  description: "Sistema de gestión de relaciones con clientes Stella",
+  title: "Taskmasters Web CRM",
+  description: "Sistema de gestión de relaciones con clientes de Taskmasters Web",
 };
 
 export default function RootLayout({

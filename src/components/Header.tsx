@@ -4,12 +4,16 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import type { User } from '@supabase/supabase-js';
-import { Search, Bell, CircleHelp, Building2, User as UserIcon, X } from 'lucide-react';
+import { Search, Bell, CircleHelp, Building2, User as UserIcon, X, Menu } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { NotificationCenter } from './NotificationCenter';
 import { getUserRole } from '@/lib/authHelper';
 
-export const Header = () => {
+interface HeaderProps {
+  onMenuClick: () => void;
+}
+
+export const Header = ({ onMenuClick }: HeaderProps) => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [user, setUser] = useState<User | null>(null);
@@ -118,9 +122,16 @@ export const Header = () => {
   };
 
   return (
-    <header className="bg-surface/85 backdrop-blur-md sticky top-0 z-40 w-full shadow-[0px_20px_40px_rgba(15,23,42,0.04)] flex items-center justify-between px-8 py-3">
-      <div className="flex-1 flex items-center">
-        <div className="relative w-80 focus-within:ring-2 focus-within:ring-primary-container/30 rounded-full transition-all group" ref={searchRef}>
+    <header className="bg-surface/85 backdrop-blur-md sticky top-0 z-40 w-full shadow-[0px_20px_40px_rgba(15,23,42,0.04)] flex items-center justify-between px-4 sm:px-8 py-3">
+      <div className="flex-1 flex items-center gap-4">
+        <button 
+          onClick={onMenuClick}
+          className="p-2 text-on-surface-variant hover:bg-surface-container-low rounded-lg md:hidden"
+        >
+          <Menu size={24} />
+        </button>
+
+        <div className="relative w-full max-w-[12rem] sm:max-w-xs focus-within:ring-2 focus-within:ring-primary-container/30 rounded-full transition-all group" ref={searchRef}>
           <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant group-focus-within:text-primary" />
           <input 
             type="text" 

@@ -30,7 +30,8 @@ import {
   Zap,
   TrendingDown,
   DollarSign,
-  ChevronDown
+  ChevronDown,
+  MessageSquare
 } from "lucide-react";
 import { getUserRole } from "@/lib/authHelper";
 import { motion, AnimatePresence } from "motion/react";
@@ -102,6 +103,8 @@ export default function Dashboard() {
     activeAgents: 1,
     totalRevenueGoal: 0
   }); // For Agents
+  const [teamLeads, setTeamLeads] = useState<any[]>([]);
+  const [leads, setLeads] = useState<any[]>([]);
   const [lastUpdatePing, setLastUpdatePing] = useState(false); // For real-time visual feedback
   
   // Leads for selection
@@ -168,7 +171,13 @@ export default function Dashboard() {
       // Fetch Agents for selector (Admin or has specific permission)
       if (role === 'admin' || permissions.includes('filter_dashboard_by_agent')) {
         const { data: agentsData } = await supabase.from('profiles').select('id, name');
-        if (agentsData) setAgents(agentsData);
+        if (agentsData) {
+          const filteredAgents = agentsData.filter(p => 
+            !p.name.toLowerCase().includes('rodrigo') && 
+            !p.name.toLowerCase().includes('gerardo')
+          );
+          setAgents(filteredAgents);
+        }
       }
 
       if (session?.user?.id) {
@@ -235,25 +244,31 @@ export default function Dashboard() {
         endDate.setHours(23, 59, 59, 999);
       }
 
-      // 2. Fetch Leads (Primary data source)
-      let leadsQuery = supabase.from('leads').select('*, sales(*)');
+      // 2. Fetch All Profiles (Excluding CEOs Rodrigo and Gerardo)
+      const { data: profsData } = await supabase.from('profiles').select('id, name');
+      const profs = (profsData || []).filter(p => 
+        !p.name.toLowerCase().includes('rodrigo') && 
+        !p.name.toLowerCase().includes('gerardo')
+      );
+
+      // 3. Fetch ALL Leads for Team Stats (Leaderboard, Funnel)
+      const { data: teamLeadsData } = await supabase.from('leads').select('*, sales(*)');
+      const teamLeads = teamLeadsData || [];
+      setTeamLeads(teamLeads);
       
-      // Filter Logic:
-      // If admin (or has view_team_dashboard) and 'all' agents, fetch everything.
-      // If admin (or has filter_dashboard_by_agent) and specific agent, filter by that agent.
-      // If not admin and no special permissions, always filter by current user.
+      // 2.5 Filter Leads for Personal Metrics
       const canViewAll = role === 'admin' || permissions.includes('view_team_dashboard');
       const canFilterByAgent = role === 'admin' || permissions.includes('filter_dashboard_by_agent');
 
-      if (canViewAll) {
-        if (canFilterByAgent && selectedAgentId !== 'all') {
-          leadsQuery = leadsQuery.eq('assigned_to', selectedAgentId);
-        }
-      } else {
-        leadsQuery = leadsQuery.eq('assigned_to', userId);
+      let myLeads = teamLeads || [];
+      if (!canViewAll) {
+        myLeads = (teamLeads || []).filter(l => l.assigned_to === userId);
+      } else if (canFilterByAgent && selectedAgentId !== 'all') {
+        myLeads = (teamLeads || []).filter(l => l.assigned_to === selectedAgentId);
       }
 
-      const { data: leads } = await leadsQuery;
+      const leads = myLeads;
+      setLeads(leads);
 
       if (leads) {
         // Filter leads/sales for metrics within range
@@ -268,13 +283,13 @@ export default function Dashboard() {
         });
 
         // Metrics Calculation
-        const ganados = periodLeads.filter(l => l.status === 'venta').length;
-        const perdidos = periodLeads.filter(l => l.status === 'perdido').length;
+        const ganados = periodLeads.filter(l => ['venta', 'sold', 'cerrado'].includes((l.status || '').toLowerCase())).length;
+        const perdidos = periodLeads.filter(l => ['perdido', 'lost'].includes((l.status || '').toLowerCase())).length;
         const winRate = (ganados + perdidos) > 0 ? (ganados / (ganados + perdidos)) * 100 : 0;
         
         const totalRevenue = periodSales.reduce((acc, s) => acc + (s.total_amount || 0), 0);
         const pendingDebt = periodSales.reduce((acc, s) => acc + (s.pending_amount || 0), 0);
-        const activeDeals = leads.filter(l => l.status !== 'venta' && l.status !== 'perdido').length; // Current pipeline is always current
+        const activeDeals = teamLeads.filter(l => !['venta', 'sold', 'cerrado', 'perdido', 'lost'].includes((l.status || '').toLowerCase())).length; 
 
         setMetrics({
           totalRevenue,
@@ -284,14 +299,20 @@ export default function Dashboard() {
           winRate
         });
 
-        // 3. Adaptive Chart Data Generation
+        // 3. Adaptive Chart Data Generation (Now using teamLeads for momentum)
         const generatedData = [];
         const diffDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 3600 * 24));
+        
+        const chartSource = teamLeads || [];
+        const periodTeamLeads = chartSource.filter(l => {
+          const d = new Date(l.created_at);
+          return !isNaN(d.getTime()) && d >= startDate && d <= endDate;
+        });
 
         if (period === 'Day' || (period === 'Custom' && diffDays <= 1)) {
           // Hourly (24 ticks)
           for (let i = 0; i < 24; i++) {
-            const hCount = periodLeads.filter(l => new Date(l.created_at).getHours() === i).length;
+            const hCount = periodTeamLeads.filter(l => new Date(l.created_at).getHours() === i).length;
             generatedData.push({ name: `${i}:00`, value: hCount, label: `${i}:00` });
           }
         } else if (period === 'Week') {
@@ -299,14 +320,14 @@ export default function Dashboard() {
           for (let i = 6; i >= 0; i--) {
             const d = new Date();
             d.setDate(d.getDate() - i);
-            const count = periodLeads.filter(l => new Date(l.created_at).toDateString() === d.toDateString()).length;
+            const count = periodTeamLeads.filter(l => new Date(l.created_at).toDateString() === d.toDateString()).length;
             generatedData.push({ name: d.toLocaleString('es-ES', { weekday: 'short' }), value: count, label: d.toLocaleDateString() });
           }
         } else if (period === 'Month' || (period === 'Custom' && diffDays <= 31)) {
           // Daily (period days)
           const tempDate = new Date(startDate);
           while (tempDate <= endDate) {
-             const count = periodLeads.filter(l => new Date(l.created_at).toDateString() === tempDate.toDateString()).length;
+             const count = periodTeamLeads.filter(l => new Date(l.created_at).toDateString() === tempDate.toDateString()).length;
              generatedData.push({ name: tempDate.getDate().toString(), value: count, label: tempDate.toLocaleDateString() });
              tempDate.setDate(tempDate.getDate() + 1);
           }
@@ -315,42 +336,52 @@ export default function Dashboard() {
           for (let i = 11; i >= 0; i--) {
             const d = new Date();
             d.setMonth(d.getMonth() - i);
-            const count = leads.filter(l => {
+            const count = chartSource.filter(l => {
               const ld = new Date(l.created_at);
-              return ld.getMonth() === d.getMonth() && ld.getFullYear() === d.getFullYear();
+              return !isNaN(ld.getTime()) && ld.getMonth() === d.getMonth() && ld.getFullYear() === d.getFullYear();
             }).length;
             generatedData.push({ name: d.toLocaleString('es-ES', { month: 'short' }), value: count, label: d.toLocaleString('es-ES', { month: 'long', year: 'numeric' }) });
           }
         }
         setChartData(generatedData);
 
-        // EXTRA: EXPERT ADMIN TOOLS DATA AGGREGATION
-        if (role === 'admin' || permissions.includes('view_team_dashboard')) {
-          // A. Fetch All Profiles for Names
-          const { data: profs } = await supabase.from('profiles').select('id, name');
-          const profilesMap = new Map((profs || []).map(p => [p.id, p.name]));
+        // EXTRA: EXPERT TEAM TOOLS DATA AGGREGATION (Now for everyone as requested)
+        if (teamLeads) {
+          const profilesMap = new Map(profs.map(p => [p.id, p.name]));
 
-          // B. Funnel Calculation (Statuses mapped to human-readable names and colors)
-          const statusMap: any = {
-            'nuevo': { label: 'Nuevos', color: 'bg-blue-400' },
-            'contactado': { label: 'Contactados', color: 'bg-yellow-400' },
-            'reunión': { label: 'Reuniones', color: 'bg-purple-400' },
-            'demo': { label: 'Demos', color: 'bg-indigo-400' },
-            'propuesta': { label: 'Propuestas', color: 'bg-orange-400' },
-            'venta': { label: 'Ventas', color: 'bg-green-400' }
-          };
+          // B. Funnel Calculation (Normalized for case-sensitivity and synonyms)
+          const funnelStages = [
+            { key: 'nuevo', label: 'Nuevos', color: 'bg-blue-400', matches: ['nuevo', 'new'] },
+            { key: 'contactado', label: 'Contactados', color: 'bg-yellow-400', matches: ['contactado', 'interesado'] },
+            { key: 'reunión', label: 'Reuniones', color: 'bg-purple-400', matches: ['reunión', 'meeting', 'cita'] },
+            { key: 'demo', label: 'Demos', color: 'bg-indigo-400', matches: ['demo'] },
+            { key: 'propuesta', label: 'Propuestas', color: 'bg-orange-400', matches: ['propuesta'] },
+            { key: 'venta', label: 'Ventas', color: 'bg-green-400', matches: ['venta', 'sold', 'cerrado'] }
+          ];
           
-          const funnel = Object.keys(statusMap).map(status => ({
-            status: statusMap[status].label,
-            count: leads.filter(l => l.status === status).length,
-            color: statusMap[status].color
+          const funnel = funnelStages.map(stage => ({
+            status: stage.label,
+            count: teamLeads.filter(l => stage.matches.includes((l.status || '').toLowerCase())).length,
+            color: stage.color
           }));
           setFunnelData(funnel);
 
-          // C. Source Analysis
+          // C. Source Analysis (Cleaned and Global)
+          const cleanSource = (src: string) => {
+            if (!src) return 'Sin Origen';
+            const s = src.toLowerCase();
+            if (s.includes('instagram')) return 'Instagram';
+            if (s.includes('facebook') || s.includes('fb')) return 'Facebook';
+            if (s.includes('whatsapp') || s.includes('wa.')) return 'WhatsApp';
+            if (s.includes('tiktok')) return 'TikTok';
+            if (s.includes('google')) return 'Google';
+            if (s.includes('referido') || s.includes('recomendación')) return 'Referido';
+            return src.length > 20 ? src.substring(0, 17) + '...' : src;
+          };
+
           const sources: any = {};
-          leads.forEach(l => {
-            const src = l.source || 'Sin Origen';
+          (teamLeads || []).forEach(l => {
+            const src = cleanSource(l.source || '');
             sources[src] = (sources[src] || 0) + 1;
           });
           setSourceData(Object.entries(sources).map(([name, value]) => ({ name, value } as any)).sort((a,b) => b.value - a.value));
@@ -361,7 +392,7 @@ export default function Dashboard() {
              agentStats[p.id] = { id: p.id, name: p.name, revenue: 0, deals: 0, totalLeads: 0 };
           });
 
-          leads.forEach(l => {
+          teamLeads.forEach(l => {
             if (l.assigned_to && agentStats[l.assigned_to]) {
               agentStats[l.assigned_to].totalLeads++;
               if (l.status === 'venta') {
@@ -377,11 +408,11 @@ export default function Dashboard() {
             .filter((a: any) => a.totalLeads > 0 || a.revenue > 0);
           setLeaderboard(leaderboardSorted);
 
-          // E. Forecast (Pipeline Value)
-          const potential = leads
+          // E. Forecast (Pipeline Value - Team based)
+          const potential = teamLeads
             .filter(l => ['reunión', 'demo', 'propuesta'].includes(l.status))
             .reduce((acc, l) => acc + (l.sale_price || 0), 0);
-          setForecast({ potential, total: activeDeals });
+          setForecast({ potential, total: teamLeads.filter(l => l.status !== 'venta' && l.status !== 'perdido').length });
 
           // F. Workload
           setWorkload(leaderboardSorted.map((a: any) => ({
@@ -396,12 +427,12 @@ export default function Dashboard() {
           todayStart.setHours(0,0,0,0);
           
           const perfData = (profs || []).map(p => {
-            const todayLeads = leads.filter(l => l.assigned_to === p.id && new Date(l.created_at) >= todayStart).length;
-            const moLeads = leads.filter(l => {
+            const todayLeads = teamLeads.filter(l => l.assigned_to === p.id && new Date(l.created_at) >= todayStart).length;
+            const moLeads = teamLeads.filter(l => {
               const ld = new Date(l.created_at);
               return l.assigned_to === p.id && ld.getMonth() === new Date().getMonth() && ld.getFullYear() === new Date().getFullYear();
             }).length;
-            const moSales = leads.filter(l => {
+            const moSales = teamLeads.filter(l => {
               const ld = l.closed_at ? new Date(l.closed_at) : null;
               return l.assigned_to === p.id && l.status === 'venta' && ld && ld.getMonth() === new Date().getMonth() && ld.getFullYear() === new Date().getFullYear();
             }).length;
@@ -457,7 +488,7 @@ export default function Dashboard() {
           return l.status === 'venta' && cd && cd >= cycleStart && cd <= cycleEnd;
         }).length;
 
-        const activeAgentsCount = new Set(leads.map(l => l.assigned_to).filter(Boolean)).size || 1;
+        const activeAgentsCount = profs.length || 1;
 
         setPersonalGoals({
           monthlyLeads: myLeads.length,
@@ -470,12 +501,8 @@ export default function Dashboard() {
           totalRevenueGoal: typeof revenueGoal === 'number' ? revenueGoal : 0
         });
 
-      // 4. Recent Activities (Always last 5 for context)
-      let actQuery = supabase.from('activities').select('*, leads(business_name, assigned_to)').order('created_at', { ascending: false }).limit(5);
-      if (role !== 'admin' && !permissions.includes('view_team_dashboard')) {
-        const { data: userLeads } = await supabase.from('leads').select('id').eq('assigned_to', userId);
-        if (userLeads) actQuery = actQuery.in('lead_id', userLeads.map(l => l.id));
-      }
+      // 4. Recent Activities (Team activities for context, as requested)
+      let actQuery = supabase.from('activities').select('*, leads(business_name, assigned_to)').order('created_at', { ascending: false }).limit(8);
       const { data: acts } = await actQuery;
       if (acts) setRecentActivities(acts.map(a => ({
         id: a.id,
@@ -639,38 +666,38 @@ export default function Dashboard() {
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, ease: "easeOut" }}
-        className="flex flex-col xl:flex-row xl:items-end justify-between gap-8 pb-4 border-b border-outline-variant/10"
+        className="flex flex-col lg:flex-row lg:items-end justify-between gap-8 pb-4 border-b border-outline-variant/10"
       >
         <div className="space-y-1">
           <div className="flex items-center gap-3">
-            <h1 className="text-4xl md:text-6xl font-headline font-black text-on-surface tracking-tight">
-              Control <span className="text-primary italic">Panel</span>
+            <h1 className="text-3xl sm:text-4xl md:text-6xl font-headline font-black text-on-surface tracking-tight">
+              Taskmasters <span className="text-primary italic">Web</span>
             </h1>
             <div className="h-10 w-[2px] bg-outline-variant/20 mx-2 rotate-[25deg] hidden md:block" />
             <div className="hidden md:flex flex-col">
-              <span className="text-[10px] font-black text-primary uppercase tracking-[0.3em]">Business Intelligence</span>
+              <span className="text-[10px] font-black text-primary uppercase tracking-[0.3em]">Hub de Ventas</span>
               {userRole === 'admin' && (
-                <span className="text-[9px] font-bold text-on-surface-variant/60 uppercase tracking-widest">Admin Hub Active</span>
+                <span className="text-[9px] font-bold text-on-surface-variant/60 uppercase tracking-widest">Admin Control Center</span>
               )}
             </div>
           </div>
-          <p className="text-on-surface-variant font-medium text-lg max-w-2xl leading-relaxed">
-            Gestión inteligente de prospectos para <span className="text-on-surface font-headline font-bold">{profile?.name || 'Vendedor'}</span>.
+          <p className="text-on-surface-variant font-medium text-sm sm:text-lg max-w-2xl leading-relaxed">
+            Gestión estratégica de prospectos para <span className="text-on-surface font-headline font-bold">{profile?.name || 'Vendedor'}</span>.
           </p>
         </div>
 
         {/* Unified Control Center Hub */}
-        <div className="flex flex-wrap items-center gap-4 bg-surface-container-low/50 p-2 rounded-[2rem] border border-outline-variant/10 backdrop-blur-md shadow-sm">
+        <div className="flex flex-wrap items-center gap-3 sm:gap-4 bg-surface-container-low/50 p-2 rounded-2xl sm:rounded-[2rem] border border-outline-variant/10 backdrop-blur-md shadow-sm">
           {/* Agent Selector */}
           {(userRole === 'admin' || permissions.includes('filter_dashboard_by_agent')) && (
-            <div className="relative group">
+            <div className="relative group flex-1 min-w-[120px] sm:flex-none">
               <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-primary/60">
                 <Users size={16} />
               </div>
               <select
                 value={selectedAgentId}
                 onChange={(e) => setSelectedAgentId(e.target.value)}
-                className="pl-11 pr-8 py-3 bg-surface-container-lowest/80 rounded-2xl text-[11px] font-black uppercase tracking-widest border border-outline-variant/5 outline-none focus:ring-4 focus:ring-primary/10 transition-all appearance-none cursor-pointer hover:bg-surface-container-lowest shadow-sm"
+                className="w-full pl-11 pr-8 py-2 sm:py-3 bg-surface-container-lowest/80 rounded-xl sm:rounded-2xl text-[10px] sm:text-[11px] font-black uppercase tracking-widest border border-outline-variant/5 outline-none focus:ring-4 focus:ring-primary/10 transition-all appearance-none cursor-pointer hover:bg-surface-container-lowest shadow-sm"
               >
                 <option value="all">Equipo Completo</option>
                 {agents.map(agent => (
@@ -681,14 +708,14 @@ export default function Dashboard() {
           )}
           
           {/* Period Selector */}
-          <div className="relative group">
+          <div className="relative group flex-1 min-w-[120px] sm:flex-none">
             <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-primary/60">
               <Calendar size={16} />
             </div>
             <select
               value={period}
               onChange={(e) => setPeriod(e.target.value as Period)}
-              className="pl-11 pr-10 py-3 bg-surface-container-lowest/80 rounded-2xl text-[11px] font-black uppercase tracking-widest border border-outline-variant/5 outline-none focus:ring-4 focus:ring-primary/10 transition-all appearance-none cursor-pointer hover:bg-surface-container-lowest shadow-sm"
+              className="w-full pl-11 pr-10 py-2 sm:py-3 bg-surface-container-lowest/80 rounded-xl sm:rounded-2xl text-[10px] sm:text-[11px] font-black uppercase tracking-widest border border-outline-variant/5 outline-none focus:ring-4 focus:ring-primary/10 transition-all appearance-none cursor-pointer hover:bg-surface-container-lowest shadow-sm"
             >
               <option value="Day">Hoy</option>
               <option value="Week">Semana</option>
@@ -704,20 +731,20 @@ export default function Dashboard() {
             <motion.div 
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="flex items-center gap-2 pr-2"
+              className="flex items-center gap-2 pr-2 w-full sm:w-auto"
             >
               <input 
                 type="date" 
                 value={customRange.start}
                 onChange={(e) => setCustomRange(prev => ({ ...prev, start: e.target.value }))} 
-                className="bg-surface-container-lowest/80 text-[10px] font-black border border-outline-variant/10 rounded-xl px-3 py-1.5 focus:ring-1 focus:ring-primary outline-none"
+                className="flex-1 sm:flex-none bg-surface-container-lowest/80 text-[10px] font-black border border-outline-variant/10 rounded-xl px-3 py-1.5 focus:ring-1 focus:ring-primary outline-none min-w-[110px]"
               />
               <span className="text-on-surface-variant text-[10px] font-black uppercase">al</span>
               <input 
                 type="date" 
                 value={customRange.end}
                 onChange={(e) => setCustomRange(prev => ({ ...prev, end: e.target.value }))} 
-                className="bg-surface-container-lowest/80 text-[10px] font-black border border-outline-variant/10 rounded-xl px-3 py-1.5 focus:ring-1 focus:ring-primary outline-none"
+                className="flex-1 sm:flex-none bg-surface-container-lowest/80 text-[10px] font-black border border-outline-variant/10 rounded-xl px-3 py-1.5 focus:ring-1 focus:ring-primary outline-none min-w-[110px]"
               />
             </motion.div>
           )}
@@ -929,112 +956,125 @@ export default function Dashboard() {
            </div>
       </motion.div>
       </motion.div>
-         {/* EXPERT ADMIN TOOLS SECTION */}
-      {userRole === 'admin' && (
-        <motion.div 
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.5, duration: 1 }}
-          className="space-y-8"
-        >
-          <div className="flex items-center gap-4">
-             <div className="h-10 w-2 bg-primary rounded-full shadow-[0_0_15px_rgba(var(--primary-rgb),0.4)]" />
-             <div className="space-y-0.5">
-               <h3 className="font-headline text-3xl font-black text-on-surface tracking-tight">Inteligencia Administrativa</h3>
-               <p className="text-[10px] font-black text-primary uppercase tracking-[0.3em]">Advanced Sales Governance</p>
-             </div>
+         {/* SHARED ANALYTICS SECTION (Leaderboard & Funnel) */}
+      <motion.div 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.5, duration: 1 }}
+        className="space-y-8"
+      >
+        <div className="flex items-center gap-4">
+           <div className="h-10 w-2 bg-primary rounded-full shadow-[0_0_15px_rgba(var(--primary-rgb),0.4)]" />
+           <div className="space-y-0.5">
+             <h3 className="font-headline text-3xl font-black text-on-surface tracking-tight">Estadísticas del Equipo</h3>
+             <p className="text-[10px] font-black text-primary uppercase tracking-[0.3em]">Team Performance & Funnel</p>
+           </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          {/* 1. Leaderboard - Top Performers (Now visible to everyone) */}
+          <div className="lg:col-span-4 glass-panel rounded-3xl p-8 relative overflow-hidden group">
+            <div className="flex justify-between items-center mb-8 relative z-10">
+              <h4 className="font-headline text-xl font-bold flex items-center gap-2">
+                <Trophy size={20} className="text-amber-500" /> Leaderboard
+              </h4>
+              <div className="p-2 bg-amber-50 rounded-lg">
+                <TrendingUp size={16} className="text-amber-600" />
+              </div>
+            </div>
+
+            <div className="space-y-5 relative z-10">
+              {leaderboard.length > 0 ? leaderboard.map((agent, i) => (
+                <motion.div 
+                  key={agent.id} 
+                  initial={{ x: -20, opacity: 0 }}
+                  whileInView={{ x: 0, opacity: 1 }}
+                  viewport={{ once: true }}
+                  transition={{ delay: i * 0.1 }}
+                  className={`flex items-center justify-between p-4 rounded-2xl transition-all border border-transparent ${i === 0 ? 'bg-primary-container/10 border-primary-container/20 shadow-lg shadow-primary/5 scale-[1.02]' : 'hover:bg-surface-container-low/40 hover:border-outline-variant/10'} group`}
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="relative">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-sm ${i === 0 ? 'bg-amber-100 text-amber-700 ring-4 ring-amber-50' : 'bg-surface-container-high text-on-surface-variant'}`}>
+                        {i === 0 ? <Zap size={16} className="fill-current" /> : i + 1}
+                      </div>
+                      {i === 0 && <div className="absolute -top-2 -right-1 text-xl drop-shadow-sm">👑</div>}
+                    </div>
+                    <div>
+                      <p className={`text-sm font-black ${i === 0 ? 'text-on-surface' : 'text-on-surface-variant/80'}`}>{agent.name}</p>
+                      <p className="text-[10px] font-bold text-on-surface-variant/50 uppercase tracking-tighter">{agent.deals} ventas • {agent.totalLeads} leads</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-base font-black text-on-surface tracking-tighter">${agent.revenue.toLocaleString()}</p>
+                    <div className="w-16 h-1.5 bg-surface-container-high rounded-full mt-1.5 overflow-hidden">
+                      <div 
+                        className="h-full bg-primary" 
+                        style={{ width: `${Math.min((agent.revenue / (leaderboard[0]?.revenue || 1)) * 100, 100)}%` }} 
+                      />
+                    </div>
+                  </div>
+                </motion.div>
+              )) : (
+                <div className="py-20 text-center text-on-surface-variant/40 text-[10px] font-black uppercase tracking-widest">Esperando datos...</div>
+              )}
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            {/* 1. Leaderboard - Top Performers */}
-            <div className="lg:col-span-4 glass-panel rounded-3xl p-8 relative overflow-hidden group">
-              <div className="flex justify-between items-center mb-8 relative z-10">
+          {/* 2. Sales Funnel - Depth Enhanced Visualization */}
+          <div className="lg:col-span-5 glass-panel rounded-3xl p-8 relative group">
+            <div className="flex justify-between items-center mb-10">
+              <div className="space-y-1">
                 <h4 className="font-headline text-xl font-bold flex items-center gap-2">
-                  <Trophy size={20} className="text-amber-500" /> Leaderboard
+                  <BarChart3 size={20} className="text-primary" /> Funnel de Ventas
                 </h4>
-                <div className="p-2 bg-amber-50 rounded-lg">
-                  <TrendingUp size={16} className="text-amber-600" />
-                </div>
+                <p className="text-[10px] font-black uppercase text-on-surface-variant/40 tracking-[0.2em]">Team Conversion Flow</p>
               </div>
-
-              <div className="space-y-5 relative z-10">
-                {leaderboard.map((agent, i) => (
+              <div className="text-right">
+                 <p className="text-2xl font-headline font-black text-primary">
+                    {Math.round((metrics.activeDeals > 0 ? (metrics.newLeads / metrics.activeDeals) : 0) * 100)}%
+                 </p>
+                 <p className="text-[9px] font-bold text-on-surface-variant/50 uppercase">Health Score</p>
+              </div>
+            </div>
+            
+            <div className="space-y-3 px-4 flex flex-col items-center">
+              {funnelData.map((stage, i) => (
+                <div key={stage.status} className="w-full flex flex-col items-center">
                   <motion.div 
-                    key={agent.id} 
-                    initial={{ x: -20, opacity: 0 }}
-                    animate={{ x: 0, opacity: 1 }}
-                    transition={{ delay: 0.6 + (i * 0.1) }}
-                    className={`flex items-center justify-between p-4 rounded-2xl transition-all border border-transparent ${i === 0 ? 'bg-primary-container/10 border-primary-container/20 shadow-lg shadow-primary/5 scale-[1.02]' : 'hover:bg-surface-container-low/40 hover:border-outline-variant/10'} group`}
+                    initial={{ scaleX: 0, opacity: 0 }}
+                    whileInView={{ scaleX: 1, opacity: 1 }}
+                    viewport={{ once: true }}
+                    transition={{ delay: 0.5 + (i * 0.1), duration: 0.8 }}
+                    className={`h-12 flex items-center justify-between px-6 rounded-2xl text-on-primary font-black transition-all hover:scale-[1.02] cursor-default ${stage.color} shadow-lg relative z-10 overflow-hidden group/stage`}
+                    style={{ 
+                      width: `${100 - (i * 8)}%`,
+                      opacity: 1 - (i * 0.1)
+                    }}
                   >
-                    <div className="flex items-center gap-4">
-                      <div className="relative">
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-sm ${i === 0 ? 'bg-amber-100 text-amber-700 ring-4 ring-amber-50' : 'bg-surface-container-high text-on-surface-variant'}`}>
-                          {i === 0 ? <Zap size={16} className="fill-current" /> : i + 1}
-                        </div>
-                        {i === 0 && <div className="absolute -top-2 -right-1 text-xl drop-shadow-sm">👑</div>}
-                      </div>
-                      <div>
-                        <p className={`text-sm font-black ${i === 0 ? 'text-on-surface' : 'text-on-surface-variant/80'}`}>{agent.name}</p>
-                        <p className="text-[10px] font-bold text-on-surface-variant/50 uppercase tracking-tighter">{agent.deals} ventas • {agent.totalLeads} leads</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-base font-black text-on-surface tracking-tighter">${agent.revenue.toLocaleString()}</p>
-                      <div className="w-16 h-1.5 bg-surface-container-high rounded-full mt-1.5 overflow-hidden">
-                        <div 
-                          className="h-full bg-primary" 
-                          style={{ width: `${Math.min((agent.revenue / (leaderboard[0].revenue || 1)) * 100, 100)}%` }} 
-                        />
-                      </div>
-                    </div>
+                    {/* Funnel Slope Effect (Left/Right cut-outs) */}
+                    <div className="absolute inset-y-0 left-0 w-8 bg-black/10 -skew-x-[20deg] origin-left" />
+                    <div className="absolute inset-y-0 right-0 w-8 bg-black/10 skew-x-[20deg] origin-right" />
+                    
+                    {/* Inner Shine */}
+                    <div className="absolute inset-0 bg-gradient-to-tr from-white/0 via-white/10 to-white/0 pointer-events-none group-hover/stage:translate-x-full transition-transform duration-1000" />
+                    
+                    <span className="text-[10px] uppercase tracking-widest truncate mr-2 relative z-10">{stage.status}</span>
+                    <span className="text-sm tabular-nums relative z-10">{stage.count}</span>
                   </motion.div>
-                ))}
-              </div>
-            </div>
-
-            {/* 2. Sales Funnel - Depth Enhanced Visualization */}
-            <div className="lg:col-span-5 glass-panel rounded-3xl p-8 relative group">
-              <div className="flex justify-between items-center mb-10">
-                <div className="space-y-1">
-                  <h4 className="font-headline text-xl font-bold flex items-center gap-2">
-                    <BarChart3 size={20} className="text-primary" /> Funnel de Ventas
-                  </h4>
-                  <p className="text-[10px] font-black uppercase text-on-surface-variant/40 tracking-[0.2em]">Efficiency Flow</p>
+                  {i < funnelData.length - 1 && (
+                    <div className="w-[1px] h-3 bg-outline-variant/30 relative">
+                       <div className="absolute -bottom-1 -left-1 w-2 h-2 rounded-full bg-outline-variant/30" />
+                    </div>
+                  )}
                 </div>
-                <div className="text-right">
-                   <p className="text-2xl font-headline font-black text-primary">
-                      {Math.round((metrics.activeDeals > 0 ? (metrics.newLeads / metrics.activeDeals) : 0) * 100)}%
-                   </p>
-                   <p className="text-[9px] font-bold text-on-surface-variant/50 uppercase">Health Score</p>
-                </div>
-              </div>
-              
-              <div className="space-y-3 px-4">
-                {funnelData.map((stage, i) => (
-                  <div key={stage.status} className="relative">
-                    <motion.div 
-                      initial={{ scaleX: 0 }}
-                      animate={{ scaleX: 1 }}
-                      transition={{ delay: 0.7 + (i * 0.1), duration: 0.8 }}
-                      className={`h-12 flex items-center justify-between px-6 rounded-2xl text-on-primary font-black transition-all hover:scale-[1.02] cursor-default ${stage.color} shadow-lg relative z-10 overflow-hidden`}
-                      style={{ width: `${100 - (i * 10)}%`, margin: '0 auto' }}
-                    >
-                      {/* Inner Shine */}
-                      <div className="absolute inset-0 bg-gradient-to-tr from-white/0 via-white/10 to-white/0 pointer-events-none" />
-                      
-                      <span className="text-[10px] uppercase tracking-widest truncate mr-2">{stage.status}</span>
-                      <span className="text-sm tabular-nums">{stage.count}</span>
-                    </motion.div>
-                    {i < funnelData.length - 1 && (
-                      <div className="h-2 w-[2px] bg-outline-variant/20 mx-auto" />
-                    )}
-                  </div>
-                ))}
-              </div>
+              ))}
             </div>
+          </div>
 
-            {/* 3. Forecast & Sources - Intelligence Grid */}
-            <div className="lg:col-span-3 space-y-6">
+          {/* 3. Forecast & Sources (Visible based on permissions) */}
+          <div className="lg:col-span-3 space-y-6">
+              {(userRole === 'admin' || permissions.includes('view_team_dashboard')) && (
                 <div className="glass-panel rounded-3xl p-6 relative overflow-hidden">
                    <div className="flex items-center gap-2 mb-6">
                      <div className="p-1.5 bg-green-50 rounded-lg">
@@ -1065,36 +1105,36 @@ export default function Dashboard() {
                       </div>
                    </div>
                 </div>
+              )}
 
-                <div className="bg-primary text-on-primary rounded-3xl p-8 shadow-2xl relative overflow-hidden group">
-                   <Zap className="absolute -right-6 -top-6 w-32 h-32 text-on-primary/10 group-hover:scale-110 group-hover:rotate-12 transition-transform duration-700" />
-                   <p className="text-[10px] font-black uppercase tracking-[0.3em] mb-2 opacity-60">Pipeline Value</p>
-                   <h4 className="font-headline text-4xl font-black mb-6 tracking-tighter tabular-nums">${forecast.potential.toLocaleString()}</h4>
-                   <div className="flex items-center gap-2 text-[10px] font-black bg-on-primary/10 w-fit px-3 py-1.5 rounded-2xl backdrop-blur-md border border-on-primary/5">
-                     <Target size={14} fill="currentColor" className="opacity-40" /> {forecast.total} DEALS ACTIVE
+              <div className="bg-primary text-on-primary rounded-3xl p-8 shadow-2xl relative overflow-hidden group">
+                 <Zap className="absolute -right-6 -top-6 w-32 h-32 text-on-primary/10 group-hover:scale-110 group-hover:rotate-12 transition-transform duration-700" />
+                 <p className="text-[10px] font-black uppercase tracking-[0.3em] mb-2 opacity-60">Pipeline Value</p>
+                 <h4 className="font-headline text-4xl font-black mb-6 tracking-tighter tabular-nums">${forecast.potential.toLocaleString()}</h4>
+                 <div className="flex items-center gap-2 text-[10px] font-black bg-on-primary/10 w-fit px-3 py-1.5 rounded-2xl backdrop-blur-md border border-on-primary/5">
+                   <Target size={14} fill="currentColor" className="opacity-40" /> {forecast.total} DEALS ACTIVE
+                 </div>
+              </div>
+
+              <div className="glass-panel rounded-3xl p-6">
+                 <div className="flex items-center gap-2 mb-4">
+                   <div className="p-1.5 bg-indigo-50 rounded-lg">
+                     <PieChart size={18} className="text-indigo-600" />
                    </div>
-                </div>
-
-                <div className="glass-panel rounded-3xl p-6">
-                   <div className="flex items-center gap-2 mb-4">
-                     <div className="p-1.5 bg-indigo-50 rounded-lg">
-                       <PieChart size={18} className="text-indigo-600" />
+                   <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-on-surface-variant">Top Channels</h4>
+                 </div>
+                 <div className="grid grid-cols-2 gap-3">
+                   {sourceData.slice(0, 4).map((src) => (
+                     <div key={src.name} className="bg-surface-container-low/40 p-3 rounded-2xl border border-outline-variant/5">
+                       <p className="text-[8px] font-black text-on-surface-variant/60 uppercase truncate tracking-tight">{src.name}</p>
+                       <p className="text-base font-black text-on-surface tracking-tighter">{src.value}</p>
                      </div>
-                     <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-on-surface-variant">Top Channels</h4>
-                   </div>
-                   <div className="grid grid-cols-2 gap-3">
-                     {sourceData.slice(0, 4).map((src) => (
-                       <div key={src.name} className="bg-surface-container-low/40 p-3 rounded-2xl border border-outline-variant/5">
-                         <p className="text-[8px] font-black text-on-surface-variant/60 uppercase truncate tracking-tight">{src.name}</p>
-                         <p className="text-base font-black text-on-surface tracking-tighter">{src.value}</p>
-                       </div>
-                     ))}
-                   </div>
-                </div>
-            </div>
+                   ))}
+                 </div>
+              </div>
           </div>
-        </motion.div>
-      )}
+        </div>
+      </motion.div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <motion.div 
@@ -1102,49 +1142,75 @@ export default function Dashboard() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ delay: 0.1 }}
-          className="lg:col-span-2 glass-panel rounded-3xl p-8 flex flex-col justify-between group"
+          className="lg:col-span-2 glass-panel rounded-3xl p-8 flex flex-col group relative overflow-hidden border-primary/10"
         >
-          <div className="flex justify-between items-start mb-10">
-            <div>
-              <p className="text-[10px] font-black text-primary uppercase tracking-[0.3em] mb-1">Rendimiento de Captura</p>
-              <h3 className="font-headline text-2xl font-black text-on-surface">Actividad de Prospectos</h3>
-            </div>
-            <div className="flex gap-4">
-              <div className="flex items-center gap-2 px-3 py-1 bg-primary/5 rounded-full border border-primary/10">
-                <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-                <span className="text-[10px] font-black text-primary uppercase tracking-widest">Live Flow</span>
+          <div className="relative z-10 flex flex-col h-full">
+            <div className="flex justify-between items-start mb-8">
+              <div>
+                <p className="text-[10px] font-black text-primary uppercase tracking-[0.3em] mb-1">
+                  {selectedAgentId === 'all' ? 'Vista General de Equipo' : 'Vista Individual de Agente'}
+                </p>
+                <h3 className="font-headline text-2xl font-black text-on-surface">Centro de Seguimiento Crítico</h3>
+              </div>
+              <div className="bg-primary/5 px-4 py-2 rounded-2xl border border-primary/10">
+                <p className="text-[10px] font-black text-primary uppercase mb-0.5">Pendientes</p>
+                <p className="text-xl font-headline font-black text-on-surface text-right">{leads?.filter(l => ['nuevo', 'new'].includes((l.status || '').toLowerCase())).length}</p>
               </div>
             </div>
-          </div>
 
-          <div className="h-56 flex items-end justify-between gap-2.5 px-2 relative">
-            {/* Horizontal Grid Lines (Decorative) */}
-            <div className="absolute inset-0 flex flex-col justify-between py-1 pointer-events-none opacity-5">
-               {[1,2,3,4].map(i => <div key={i} className="w-full h-[1px] bg-on-surface" />)}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+              {/* Quick Action Stats (Respects Filters) */}
+              {[
+                { label: 'Sin Contactar', count: leads?.filter(l => ['nuevo', 'new'].includes((l.status || '').toLowerCase())).length, color: 'text-blue-500', bg: 'bg-blue-50' },
+                { label: 'Sin Asignar', count: leads?.filter(l => !l.assigned_to).length, color: 'text-red-500', bg: 'bg-red-50' },
+                { label: 'En Proceso', count: leads?.filter(l => ['contactado', 'interesado', 'meeting', 'reunión'].includes((l.status || '').toLowerCase())).length, color: 'text-orange-500', bg: 'bg-orange-50' }
+              ].map(stat => (
+                <div key={stat.label} className={`${stat.bg} p-4 rounded-2xl border border-black/5 flex flex-col items-center justify-center text-center`}>
+                  <p className="text-[10px] font-black uppercase text-on-surface-variant/60 mb-1">{stat.label}</p>
+                  <p className={`text-2xl font-headline font-black ${stat.color}`}>{stat.count}</p>
+                </div>
+              ))}
             </div>
 
-            {chartData.map((d, i) => (
-              <div key={i} className="flex-1 flex flex-col items-center group/bar relative">
-                <motion.div 
-                  initial={{ height: 0 }}
-                  whileInView={{ height: `${Math.max((d.value / (Math.max(...chartData.map(v => v.value)) || 1)) * 100, 4)}%` }}
-                  viewport={{ once: true }}
-                  transition={{ delay: i * 0.02, duration: 1, ease: "circOut" }}
-                  className={`w-full max-w-[24px] rounded-t-xl transition-all relative group-hover/bar:brightness-110 cursor-pointer ${i === chartData.length - 1 ? 'bg-gradient-to-t from-primary to-primary-container shadow-[0_0_15px_rgba(var(--primary-rgb),0.3)]' : 'bg-surface-container-high'}`}
-                >
-                  <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-on-background/95 backdrop-blur-md text-white text-[10px] font-black py-2 px-3 rounded-xl opacity-0 group-hover/bar:opacity-100 transition-all scale-90 group-hover/bar:scale-100 whitespace-nowrap z-50 pointer-events-none shadow-xl border border-white/10">
-                    <p className="text-primary-fixed mb-0.5">{d.label}</p>
-                    <p className="text-sm font-headline">{d.value} <span className="text-[8px] font-medium opacity-60 italic">leads</span></p>
-                  </div>
-                </motion.div>
+            <div className="flex-1 space-y-4">
+              <h4 className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant mb-4">Atención Inmediata (Prioridad de {selectedAgentId === 'all' ? 'Equipo' : 'Agente'})</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {(leads || [])
+                  .filter(l => ['nuevo', 'new', 'interesado', 'contactado'].includes((l.status || '').toLowerCase()))
+                  .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                  .slice(0, 4)
+                  .map(lead => (
+                    <div 
+                      key={lead.id} 
+                      onClick={() => router.push(`/leads/${lead.id}`)}
+                      className="group/item flex items-center justify-between p-4 bg-surface-container-lowest rounded-2xl border border-outline-variant/10 hover:border-primary/30 hover:shadow-lg transition-all cursor-pointer"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-primary/5 flex items-center justify-center font-black text-primary uppercase text-xs">
+                          {lead.business_name?.substring(0, 2)}
+                        </div>
+                        <div>
+                          <p className="text-sm font-black text-on-surface group-hover/item:text-primary transition-colors">{lead.business_name}</p>
+                          <p className="text-[10px] text-on-surface-variant/60 font-medium uppercase">{lead.contact_name}</p>
+                        </div>
+                      </div>
+                      <ArrowUpRight size={16} className="text-on-surface-variant/30 group-hover/item:text-primary group-hover/item:translate-x-0.5 group-hover/item:-translate-y-0.5 transition-all" />
+                    </div>
+                  ))}
               </div>
-            ))}
-          </div>
+            </div>
 
-          <div className="flex justify-between text-[10px] font-black text-on-surface-variant/40 uppercase tracking-[0.2em] mt-8 px-4">
-            {chartData.length > 15 
-              ? [chartData[0], chartData[Math.floor(chartData.length/2)], chartData[chartData.length-1]].map((d, i) => <span key={`${d.name}-${i}`}>{d.name}</span>)
-              : chartData.map((d, i) => <span key={`${d.name}-${i}`}>{d.name}</span>)}
+            <div className="mt-8 pt-6 border-t border-outline-variant/10 flex justify-between items-center">
+              <p className="text-[10px] font-medium text-on-surface-variant italic">
+                Sugerencia: Tienes {teamLeads?.filter(l => !l.assigned_to).length} prospectos sin dueño. Asígnalos para aumentar la conversión.
+              </p>
+              <button 
+                onClick={() => router.push('/leads')}
+                className="px-6 py-2 bg-primary text-on-primary text-[10px] font-black uppercase tracking-widest rounded-xl hover:brightness-110 transition-all flex items-center gap-2"
+              >
+                Ver Todos <ArrowUpRight size={12} />
+              </button>
+            </div>
           </div>
         </motion.div>
 

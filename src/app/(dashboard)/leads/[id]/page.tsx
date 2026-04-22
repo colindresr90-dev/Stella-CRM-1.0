@@ -1545,15 +1545,15 @@ export default function LeadDetailPage({ params }: PageProps) {
 
   return (
     <div className="max-w-7xl w-full mx-auto">
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
         <button 
           onClick={() => router.push('/leads')}
-          className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors bg-white px-3 py-1.5 rounded-lg border border-gray-200 shadow-sm"
+          className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors bg-white px-3 py-1.5 rounded-lg border border-gray-200 shadow-sm w-full sm:w-auto justify-center sm:justify-start"
         >
           <ArrowLeft size={18} /> Volver
         </button>
-        <h1 className="text-xl font-bold text-gray-900">{lead.business_name}</h1>
-        <div className="w-20"></div>
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">{lead.business_name}</h1>
+        <div className="hidden sm:block w-20"></div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -1840,7 +1840,7 @@ export default function LeadDetailPage({ params }: PageProps) {
                           <Calendar size={18} /> Agendar Cita
                         </button>
 
-                        <div className={lead.status === 'venta' ? 'w-full' : 'grid grid-cols-2 gap-4'}>
+                        <div className={lead.status === 'venta' ? 'w-full' : 'grid grid-cols-1 sm:grid-cols-2 gap-4'}>
                           <button
                             onClick={handleOpenSaleModal}
                             disabled={updatingStatus}
@@ -1996,7 +1996,7 @@ export default function LeadDetailPage({ params }: PageProps) {
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-8 border-y border-gray-50 py-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 border-y border-gray-50 py-6">
                     <div className="flex flex-col">
                       <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1">Total Pagado</span>
                       <span className="text-xl font-bold text-green-600">
@@ -3348,7 +3348,16 @@ export default function LeadDetailPage({ params }: PageProps) {
               </p>
               
               <div className="space-y-2">
-                {['Precio demasiado alto', 'Competencia', 'Falta de presupuesto', 'Cliente no responde', 'Otro'].map((reason) => (
+                {[
+                  'Precio demasiado elevado', 
+                  'Ya tiene sitio web / servicio', 
+                  'No responde (Ghosting)', 
+                  'Proyecto pospuesto', 
+                  'Prefirió a la competencia', 
+                  'Falta de funcionalidades',
+                  'No es el perfil / Mala calificación',
+                  'Otro'
+                ].map((reason) => (
                   <button
                     key={reason}
                     onClick={() => setLossReason(reason)}

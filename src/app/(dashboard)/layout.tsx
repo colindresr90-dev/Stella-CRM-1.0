@@ -12,6 +12,7 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
@@ -37,10 +38,10 @@ export default function DashboardLayout({
 
   return (
     <div className="min-h-screen bg-surface">
-      <Sidebar />
-      <div className="pl-64 flex flex-col min-h-screen">
-        <Header />
-        <main className="flex-1 p-8">
+      <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+      <div className={`flex flex-col min-h-screen transition-all duration-300 ${isSidebarOpen ? 'md:pl-64' : 'md:pl-64'}`}>
+        <Header onMenuClick={() => setIsSidebarOpen(!isSidebarOpen)} />
+        <main className="flex-1 p-4 sm:p-8">
           {children}
         </main>
       </div>
