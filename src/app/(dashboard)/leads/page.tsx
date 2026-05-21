@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabaseClient"
 import { getUserRole } from "@/lib/authHelper"
 import { createNotification } from "@/lib/notifications"
 import type { User } from "@supabase/supabase-js"
-import { Plus, Loader2, AlertCircle, CheckCircle2, LayoutDashboard, Search, MoreVertical, Eye, Trash2, CheckCircle, XCircle, ExternalLink, Download, FileSpreadsheet, X, Calendar, Edit2, MessageSquare, UserPlus } from "lucide-react"
+import { Plus, Loader2, AlertCircle, CheckCircle2, LayoutDashboard, Search, MoreVertical, Eye, Trash2, CheckCircle, XCircle, ExternalLink, Download, FileSpreadsheet, X, Calendar, Edit2, MessageSquare, UserPlus, TrendingUp } from "lucide-react"
 
 type Lead = {
   id: string
@@ -111,6 +111,7 @@ export default function LeadsPage() {
   // Filters
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('Todos')
+  const [agentFilter, setAgentFilter] = useState('Todos')
 
   // Actions Dropdown State
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null)
@@ -137,14 +138,11 @@ export default function LeadsPage() {
       setIsAdmin(isSystemAdmin)
       setPermissions(permissions)
 
-      if (isSystemAdmin || permissions.includes('create_and_assign_leads') || permissions.includes('reassign_leads')) {
-        // Fetch all profiles for assignment/reassignment
-        const { data: profiles } = await supabase
-          .from('profiles')
-          .select('id, name')
-          .order('name')
-        if (profiles) setAllProfiles(profiles)
-      }
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, name')
+        .order('name')
+      if (profiles) setAllProfiles(profiles)
 
       setLoading(false)
       fetchLeads(user.id, role, permissions)
@@ -605,8 +603,12 @@ export default function LeadsPage() {
       ? lead.status !== 'perdido' // "Todos" in Leads page means active prospects
       : (lead.status || 'nuevo').toLowerCase() === statusFilter.toLowerCase();
     
-    return matchesSearch && matchesStatus;
+    const matchesAgent = agentFilter === 'Todos' || lead.assigned_to === agentFilter;
+    
+    return matchesSearch && matchesStatus && matchesAgent;
   });
+
+  const activeLeadsCount = leads.filter(l => l.status !== 'perdido' && l.status !== 'venta').length;
 
   if (loading) {
     return (
@@ -620,7 +622,13 @@ export default function LeadsPage() {
     <div className="space-y-6 sm:space-y-10">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
           <div>
-            <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Leads</h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Leads</h1>
+              <span className="flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 text-blue-700 text-xs font-bold rounded-full border border-blue-100">
+                <TrendingUp size={12} />
+                {activeLeadsCount} Leads Activos
+              </span>
+            </div>
             <p className="mt-1 text-xs sm:text-sm text-gray-500">Gestiona tus leads y oportunidades.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
@@ -854,6 +862,17 @@ export default function LeadsPage() {
                     <option key={st} value={st}>{st}</option>
                  ))}
                </select>
+
+               <select 
+                 className="min-w-[140px] px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white w-full sm:w-auto"
+                 value={agentFilter}
+                 onChange={e => setAgentFilter(e.target.value)}
+               >
+                 <option value="Todos">Todos los Agentes</option>
+                 {allProfiles.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                 ))}
+               </select>
             </div>
           </div>
           
@@ -875,6 +894,7 @@ export default function LeadsPage() {
                     <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Teléfono</th>
                     <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
                     <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Asignado a</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha Asig.</th>
                     <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fuente</th>
                     <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rubro</th>
                     <th scope="col" className="relative px-6 py-3">
@@ -928,7 +948,7 @@ export default function LeadsPage() {
                           {lead.status || 'nuevo'}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center gap-2">
                           <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-[10px] font-bold text-blue-700">
                             {lead.assigned_user?.name ? lead.assigned_user.name.charAt(0).toUpperCase() : '?'}
@@ -936,6 +956,11 @@ export default function LeadsPage() {
                           <span className="text-sm text-gray-600 font-medium">
                             {lead.assigned_user?.name || 'Sin asignar'}
                           </span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-xs text-gray-500 font-medium">
+                          {lead.created_at ? new Date(lead.created_at).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '-'}
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">

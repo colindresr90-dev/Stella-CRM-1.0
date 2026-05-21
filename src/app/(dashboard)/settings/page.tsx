@@ -87,16 +87,24 @@ export default function SettingsPage() {
   const fetchData = async () => {
     setLoading(true)
     try {
-      // 1. Organization Settings
-      const { data: orgData, error: orgError } = await supabase
-        .from('organization_settings')
-        .select('*')
-        .single()
-      
-      if (orgError && orgError.code !== 'PGRST116') {
-         console.error('Error fetching settings:', orgError)
-      } else {
-         setSettings(orgData)
+      // 1. Organization Settings via API Route
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session) {
+        try {
+          const orgResponse = await fetch('/api/organization-settings', {
+            headers: {
+              'Authorization': `Bearer ${session.access_token}`
+            }
+          })
+          if (orgResponse.ok) {
+            const orgData = await orgResponse.json()
+            setSettings(orgData)
+          } else {
+            console.error("Failed to load organization settings via API:", orgResponse.statusText)
+          }
+        } catch (orgErr) {
+          console.error("Error loading organization settings via API:", orgErr)
+        }
       }
 
       // 2. Service Packages
@@ -126,16 +134,26 @@ export default function SettingsPage() {
     setSaving(true)
 
     try {
-      const { error } = await supabase
-        .from('organization_settings')
-        .update({
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) throw new Error("No hay sesión activa")
+
+      const response = await fetch('/api/organization-settings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
           company_name: settings.company_name,
           currency: settings.currency,
           monthly_sales_target: settings.monthly_sales_target
         })
-        .eq('id', settings.id)
-      
-      if (error) throw error
+      })
+
+      if (!response.ok) {
+        const errData = await response.json()
+        throw new Error(errData.error || "Error al guardar la configuración en el servidor")
+      }
       showToast("Configuración general guardada.", "success")
     } catch (err: any) {
       showToast(err.message, "error")

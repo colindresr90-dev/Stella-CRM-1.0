@@ -122,7 +122,7 @@ export const Header = ({ onMenuClick }: HeaderProps) => {
   };
 
   return (
-    <header className="bg-surface/85 backdrop-blur-md sticky top-0 z-40 w-full shadow-[0px_20px_40px_rgba(15,23,42,0.04)] flex items-center justify-between px-4 sm:px-8 py-3">
+    <header className="sticky top-0 z-40 w-full shadow-[0px_20px_40px_rgba(15,23,42,0.04)] flex items-center justify-between px-4 sm:px-8 py-3 bg-surface/85 backdrop-blur-xl border-b border-outline-variant/10">
       <div className="flex-1 flex items-center gap-4">
         <button 
           onClick={onMenuClick}

@@ -187,7 +187,8 @@ export default function TeamPage() {
   }
 
   const handleStatusToggle = async () => {
-    if (!selectedMember || !confirm(`¿Estás seguro de que deseas ${detailForm.status === 'active' ? 'DESACTIVAR' : 'ACTIVAR'} a este usuario? ${detailForm.status === 'active' ? 'Perderá el acceso al CRM inmediatamente.' : ''}`)) return
+    if (!selectedMember) return
+    
     
     setIsUpdatingMember(true)
     const newStatus = detailForm.status === 'active' ? 'inactive' : 'active'
@@ -223,18 +224,25 @@ export default function TeamPage() {
     setIsUpdatingMember(true)
 
     try {
-      const { error } = await supabase
-        .from("profiles")
-        .update({
-          hire_date: detailForm.hire_date || null,
-          emergency_contact: detailForm.emergency_contact,
-          admin_notes: detailForm.admin_notes,
-          role: detailForm.role,
-          permissions: detailForm.permissions
+      const response = await fetch("/api/update-member-info", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: selectedMember.id,
+          updates: {
+            hire_date: detailForm.hire_date || null,
+            emergency_contact: detailForm.emergency_contact,
+            admin_notes: detailForm.admin_notes,
+            role: detailForm.role,
+            permissions: detailForm.permissions
+          }
         })
-        .eq("id", selectedMember.id)
+      })
 
-      if (error) throw error
+      if (!response.ok) {
+        const errData = await response.json()
+        throw new Error(errData.error || "Error al actualizar.")
+      }
 
       showToast("Información actualizada.", "success")
       
@@ -610,7 +618,7 @@ export default function TeamPage() {
                                      type="date"
                                      value={detailForm.hire_date}
                                      onChange={(e) => setDetailForm(prev => ({ ...prev, hire_date: e.target.value }))}
-                                     className="w-full bg-surface-container-high rounded-2xl px-4 py-3 text-sm font-bold border border-outline-variant/10 focus:ring-4 focus:ring-primary/5 outline-none transition-all"
+                                     className="w-full bg-surface-container-high rounded-2xl px-4 py-3 text-sm font-bold text-on-surface border border-outline-variant/10 focus:ring-4 focus:ring-primary/5 outline-none transition-all"
                                   />
                                </div>
                                <div className="bg-surface-container-low p-6 rounded-3xl border border-outline-variant/5">
@@ -622,7 +630,7 @@ export default function TeamPage() {
                                      placeholder="Nombre y Teléfono..."
                                      value={detailForm.emergency_contact}
                                      onChange={(e) => setDetailForm(prev => ({ ...prev, emergency_contact: e.target.value }))}
-                                     className="w-full bg-surface-container-high rounded-2xl px-4 py-3 text-sm font-bold border border-outline-variant/10 focus:ring-4 focus:ring-primary/5 outline-none transition-all"
+                                     className="w-full bg-surface-container-high rounded-2xl px-4 py-3 text-sm font-bold text-on-surface border border-outline-variant/10 focus:ring-4 focus:ring-primary/5 outline-none transition-all"
                                   />
                                </div>
                             </div>
@@ -732,20 +740,69 @@ export default function TeamPage() {
                             <h3 className="text-xl font-bold text-on-surface italic">Bitácora Administrativa</h3>
                             <p className="text-sm text-on-surface-variant font-medium">Notas privadas, historial disciplinario o comentarios internos.</p>
                          </div>
-                         <textarea 
-                            rows={8}
-                            value={detailForm.admin_notes}
-                            onChange={(e) => setDetailForm(prev => ({ ...prev, admin_notes: e.target.value }))}
-                            placeholder="Escribe comentarios internos sobre el desempeño o incidencias del colaborador..."
-                            className="w-full bg-surface-container-low rounded-[2rem] p-8 text-sm font-bold border border-outline-variant/10 focus:ring-8 focus:ring-primary/5 outline-none transition-all placeholder:italic leading-relaxed shadow-inner"
-                         />
+                         
+                         <div className="bg-surface-container-low rounded-[2rem] p-6 border border-outline-variant/10 shadow-inner flex flex-col gap-4">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant px-2 flex justify-between items-center">
+                               <span>Historial de Notas</span>
+                               <span className="text-[9px] opacity-60 normal-case italic font-medium tracking-normal">Editable</span>
+                            </label>
+                            
+                            <textarea 
+                               rows={6}
+                               value={detailForm.admin_notes}
+                               onChange={(e) => setDetailForm(prev => ({ ...prev, admin_notes: e.target.value }))}
+                               placeholder="Aún no hay notas registradas..."
+                               className="w-full bg-surface-container-high/50 rounded-2xl p-6 text-sm font-bold text-on-surface border border-outline-variant/5 focus:ring-4 focus:ring-primary/5 outline-none transition-all placeholder:italic leading-relaxed resize-y"
+                            />
+
+                            <div className="pt-4 space-y-3 border-t border-outline-variant/5 mt-2">
+                               <label className="text-[10px] font-black uppercase tracking-widest text-primary px-2">Agregar Nueva Nota Rápida</label>
+                               <div className="flex gap-3 flex-col sm:flex-row">
+                                  <textarea 
+                                     rows={2}
+                                     id="new_admin_note"
+                                     placeholder="Escribe un nuevo comentario..."
+                                     className="flex-1 bg-surface-container-lowest rounded-2xl p-4 text-sm font-bold text-on-surface border border-outline-variant/10 focus:ring-4 focus:ring-primary/5 outline-none transition-all placeholder:italic resize-none"
+                                     onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && !e.shiftKey) {
+                                           e.preventDefault();
+                                           document.getElementById('btn_add_note')?.click();
+                                        }
+                                     }}
+                                  />
+                                  <button
+                                     id="btn_add_note"
+                                     type="button"
+                                     onClick={(e) => {
+                                        const input = document.getElementById('new_admin_note') as HTMLTextAreaElement;
+                                        const newNote = input?.value.trim();
+                                        
+                                        if (newNote) {
+                                           const dateStr = new Date().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute:'2-digit' });
+                                           const appended = detailForm.admin_notes 
+                                              ? `${detailForm.admin_notes}\n\n[${dateStr}] - ${newNote}`
+                                              : `[${dateStr}] - ${newNote}`;
+                                           
+                                           setDetailForm(prev => ({ ...prev, admin_notes: appended }));
+                                           if(input) input.value = '';
+                                        }
+                                     }}
+                                     className="bg-primary/10 text-primary hover:bg-primary hover:text-white px-6 py-4 sm:py-0 rounded-2xl font-bold text-sm transition-colors flex items-center justify-center border border-primary/20"
+                                  >
+                                     Añadir
+                                  </button>
+                               </div>
+                               <p className="text-[10px] text-on-surface-variant/50 px-2 italic">Añade la nota al historial (incluye fecha). Recuerda hacer clic en "Guardar Cambios" para subir a la base de datos.</p>
+                            </div>
+                         </div>
+
                          <div className="flex justify-end">
                             <button 
-                               onClick={handleUpdateMemberInfo}
+                               onClick={(e) => handleUpdateMemberInfo(e)}
                                disabled={isUpdatingMember}
                                className="px-10 py-4 bg-primary text-on-primary rounded-2xl font-black text-sm hover:scale-[1.02] active:scale-[0.98] transition-all shadow-xl shadow-primary/20 flex items-center gap-3"
                             >
-                               {isUpdatingMember ? <Loader2 size={20} className="animate-spin" /> : "Guardar Notas"}
+                               {isUpdatingMember ? <Loader2 size={20} className="animate-spin" /> : "Guardar Cambios"}
                             </button>
                          </div>
                       </div>

@@ -34,6 +34,7 @@ import {
   RotateCcw,
   Video
 } from "lucide-react"
+import { motion } from "framer-motion"
 
 type PageProps = {
   params: Promise<{ id: string }>
@@ -1560,12 +1561,17 @@ export default function LeadDetailPage({ params }: PageProps) {
 
           {/* TOP SECTION: INFO & MANAGEMENT */}
           <div className="lg:col-span-12 grid grid-cols-1 lg:grid-cols-12 gap-8">
-            {/* LEFT PANEL: INFO & ACTIONS */}
             <div className="lg:col-span-8 space-y-6">
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-
-              {isEditing ? (
-                /* ── EDIT FORM ── */
+              {/* MAIN INFO PANEL */}
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="glass-panel border border-white/40 rounded-3xl overflow-hidden relative"
+              >
+                <div className="absolute top-0 right-0 w-64 h-64 bg-blue-400/10 blur-3xl rounded-full pointer-events-none -mr-20 -mt-20" />
+                <div className="relative z-10">
+                {isEditing ? (
+                  /* ── EDIT FORM ── */
                 <div className="p-6 space-y-4">
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="text-sm font-bold text-gray-900">Editar Lead</h3>
@@ -1875,10 +1881,18 @@ export default function LeadDetailPage({ params }: PageProps) {
                   </div>
                 </>
               )}
-            </div>
+                </div>
+              </motion.div>
 
             {/* REUNIONES CARD (Filling the space between Info and Notes) */}
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+              className="glass-panel border border-white/40 rounded-3xl overflow-hidden relative"
+            >
+              <div className="absolute top-0 left-0 -ml-10 -mt-10 w-32 h-32 bg-purple-400/20 blur-3xl rounded-full pointer-events-none" />
+              <div className="relative z-10">
               <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="flex items-center gap-2">
@@ -1972,14 +1986,22 @@ export default function LeadDetailPage({ params }: PageProps) {
                   </div>
                 )}
               </div>
-            </div>
+              </div>
+            </motion.div>
           </div>
 
             {/* LEAD MANAGEMENT PANEL — always visible */}
-            <div className="lg:col-span-4 space-y-4">
+            <div className="lg:col-span-4 space-y-6">
               
               {/* RESUMEN FINANCIERO CARD */}
-              <div className="bg-white border border-gray-200 rounded-3xl shadow-sm overflow-hidden">
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.98 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 0.2 }}
+                className="glass-panel border border-white/40 rounded-3xl overflow-hidden relative"
+              >
+                <div className="absolute top-0 left-0 -ml-10 -mt-10 w-32 h-32 bg-blue-400/20 blur-3xl rounded-full pointer-events-none" />
+                <div className="relative z-10">
                 <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <TrendingUp size={16} className="text-blue-600" />
@@ -2035,10 +2057,18 @@ export default function LeadDetailPage({ params }: PageProps) {
                     </button>
                   )}
                 </div>
-              </div>
+                </div>
+              </motion.div>
 
               {/* RECORDATORIOS CARD */}
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.98 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 0.25 }}
+                className="glass-panel border border-white/40 rounded-3xl overflow-hidden relative"
+              >
+                <div className="absolute top-0 right-0 -mr-10 -mt-10 w-32 h-32 bg-amber-400/10 blur-3xl rounded-full pointer-events-none" />
+                <div className="relative z-10">
                 <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <div className={`p-1.5 rounded-lg ${reminders.length > 0 ? 'bg-amber-100 text-amber-600' : 'bg-gray-100 text-gray-400'}`}>
@@ -2148,9 +2178,18 @@ export default function LeadDetailPage({ params }: PageProps) {
                     )}
                   </div>
                 </div>
-              </div>
+                </div>
+              </motion.div>
 
-              <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+              {/* ACTIVIDAD RECIENTE (Resumen) */}
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.98 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 0.3 }}
+                className="glass-panel border border-white/40 rounded-3xl overflow-hidden relative"
+              >
+                <div className="absolute top-0 right-0 -mr-10 -mt-10 w-32 h-32 bg-purple-400/10 blur-3xl rounded-full pointer-events-none" />
+                <div className="relative z-10">
                 <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
                   <History size={14} className="text-purple-500" />
                   <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider">Actividad</h3>
@@ -2196,9 +2235,17 @@ export default function LeadDetailPage({ params }: PageProps) {
                     </button>
                   ))}
                 </div>
-              </div>
+                </div>
+              </motion.div>
 
-              <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.98 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 0.35 }}
+                className="glass-panel border border-white/40 rounded-3xl overflow-hidden relative"
+              >
+                <div className="absolute bottom-0 right-0 -mr-10 -mb-10 w-32 h-32 bg-indigo-400/10 blur-3xl rounded-full pointer-events-none" />
+                <div className="relative z-10">
                 <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
                   <Plus size={14} className="text-gray-400" />
                   <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider">Acciones rápidas</h3>
@@ -2232,13 +2279,22 @@ export default function LeadDetailPage({ params }: PageProps) {
                     <Calendar size={14} className="text-purple-400" /> Agendar reunión
                   </button>
                 </div>
-              </div>
+                </div>
+              </motion.div>
             </div>
           </div>
 
 
           {/* PRIMARY SECTION: NOTAS (Full Width) */}
-          <div ref={notesSectionRef} className="lg:col-span-12 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+          <motion.div 
+            ref={notesSectionRef} 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4 }}
+            className="lg:col-span-12 glass-panel border border-white/40 rounded-3xl overflow-hidden relative shadow-[0_8px_30px_rgb(0,0,0,0.04)]"
+          >
+            <div className="absolute top-0 right-0 w-64 h-64 bg-blue-400/10 blur-3xl rounded-full pointer-events-none -mr-20 -mt-20" />
+            <div className="relative z-10">
             <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-2">
               <FileText size={20} className="text-blue-600" />
               <h3 className="text-lg font-bold text-gray-900">Notas</h3>
@@ -2317,13 +2373,22 @@ export default function LeadDetailPage({ params }: PageProps) {
                 )}
               </div>
             </div>
-          </div>
+            </div>
+          </motion.div>
 
           {/* SECONDARY SECTION: ACTIVIDAD & ARCHIVOS */}
           <div className="lg:col-span-12 grid grid-cols-1 lg:grid-cols-2 gap-8">
             
             {/* ACTIVITY CARD */}
-            <div ref={activitySectionRef} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col">
+            <motion.div 
+              ref={activitySectionRef} 
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.5 }}
+              className="glass-panel border border-white/40 rounded-3xl overflow-hidden relative shadow-[0_8px_30px_rgb(0,0,0,0.04)] flex flex-col"
+            >
+              <div className="absolute top-0 left-0 w-64 h-64 bg-purple-400/10 blur-3xl rounded-full pointer-events-none -ml-20 -mt-20" />
+              <div className="relative z-10 flex flex-col h-full">
               <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
                 <div className="flex items-center gap-2">
                   <History size={16} className="text-purple-600" />
@@ -2372,10 +2437,19 @@ export default function LeadDetailPage({ params }: PageProps) {
                   ))
                 )}
               </div>
-            </div>
+              </div>
+            </motion.div>
 
             {/* FILES CARD */}
-            <div ref={filesSectionRef} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col">
+            <motion.div 
+              ref={filesSectionRef} 
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.55 }}
+              className="glass-panel border border-white/40 rounded-3xl overflow-hidden relative shadow-[0_8px_30px_rgb(0,0,0,0.04)] flex flex-col"
+            >
+              <div className="absolute top-0 right-0 w-64 h-64 bg-orange-400/10 blur-3xl rounded-full pointer-events-none -mr-20 -mt-20" />
+              <div className="relative z-10 flex flex-col h-full">
               <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
                 <div className="flex items-center gap-2">
                   <FileIcon size={16} className="text-orange-600" />
@@ -2447,9 +2521,10 @@ export default function LeadDetailPage({ params }: PageProps) {
                   ))
                 )}
               </div>
-            </div>
+              </div>
+            </motion.div>
           </div>
-        </div>
+      </div>
 
       {/* DELETE FILE CONFIRMATION MODAL */}
       {confirmingDeleteFile && (
