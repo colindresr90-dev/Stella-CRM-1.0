@@ -1,8 +1,14 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
+import { requireAdminOrPermission } from "@/lib/apiAuth"
 
 export async function POST(request: Request) {
   try {
+    const authResult = await requireAdminOrPermission(request, "manage_team_roster")
+    if (authResult.error) {
+      return NextResponse.json({ success: false, error: authResult.error }, { status: authResult.status })
+    }
+
     const { userId, updates } = await request.json()
 
     if (!userId || !updates) {
@@ -25,10 +31,11 @@ export async function POST(request: Request) {
     if (error) throw error
 
     return NextResponse.json({ success: true })
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error updating member info:", error)
+    const errorMsg = error instanceof Error ? error.message : "Error al actualizar información"
     return NextResponse.json(
-      { error: error.message || "Error al actualizar información" },
+      { error: errorMsg },
       { status: 500 }
     )
   }

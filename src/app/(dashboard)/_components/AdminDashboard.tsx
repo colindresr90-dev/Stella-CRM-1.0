@@ -56,12 +56,12 @@ export function AdminDashboard({ onViewAsAgent }: { onViewAsAgent?: (agent: Agen
     const { gte, lt } = monthRange(m)
 
     const [{ data: profs }, { data: leadsRaw }, { data: salesRaw }] = await Promise.all([
-      supabase.from("profiles").select("id, name, avatar_url").order("name"),
+      supabase.from("profiles").select("id, name, avatar_url, status").order("name"),
       supabase.from("leads").select("id, assigned_to, status, source, business_name, contact_name, created_at").gte("created_at", gte).lt("created_at", lt),
       supabase.from("sales").select("id, lead_id, total_amount, leads!inner(assigned_to)").gte("created_at", gte).lt("created_at", lt),
     ])
 
-    const profiles = (profs || []).filter(p => !p.name?.toLowerCase().includes("rodrigo") && !p.name?.toLowerCase().includes("gerardo"))
+    const profiles = (profs || []).filter(p => p.status !== "inactive" && !p.name?.toLowerCase().includes("rodrigo") && !p.name?.toLowerCase().includes("gerardo"))
     const leads = leadsRaw || []
     setAllLeads(leads)
 

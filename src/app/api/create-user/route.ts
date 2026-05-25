@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { requireAdminOrPermission } from "@/lib/apiAuth"
 
 export async function POST(req: Request) {
   try {
+    const authResult = await requireAdminOrPermission(req, "manage_team_roster")
+    if (authResult.error) {
+      return NextResponse.json({ success: false, error: authResult.error }, { status: authResult.status })
+    }
+
     const { email, password, role } = await req.json()
 
     if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -41,7 +47,8 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ success: true, message: "Usuario creado exitosamente" }, { status: 200 })
-  } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message }, { status: 400 })
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : "Error al crear usuario"
+    return NextResponse.json({ success: false, error: errorMsg }, { status: 400 })
   }
 }

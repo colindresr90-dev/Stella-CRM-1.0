@@ -1,8 +1,14 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
+import { requireAdminOrPermission } from "@/lib/apiAuth"
 
 export async function POST(request: Request) {
   try {
+    const authResult = await requireAdminOrPermission(request)
+    if (authResult.error) {
+      return NextResponse.json({ success: false, error: authResult.error }, { status: authResult.status })
+    }
+
     const body = await request.json()
     const { user_id, title, message, type, related_id } = body
 
@@ -37,10 +43,11 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ success: true, data })
-  } catch (error: any) {
+  } catch (error) {
     console.error("Critical error in notifications API:", error)
+    const errorMsg = error instanceof Error ? error.message : "Error interno del servidor"
     return NextResponse.json(
-      { error: error.message || "Error interno del servidor" },
+      { error: errorMsg },
       { status: 500 }
     )
   }

@@ -37,4 +37,25 @@
   @apply bg-surface-container-lowest/85 backdrop-blur-xl border border-outline-variant/20 shadow-[0px_20px_40px_rgba(19,27,46,0.06)];
 }
 
+/* Rich editor styles to override Tailwind resets inside contentEditable */
+.rich-editor ul {
+  list-style-type: disc !important;
+  padding-left: 1.5rem !important;
+  margin-top: 0.5rem !important;
+  margin-bottom: 0.5rem !important;
+}
+
+.rich-editor ol {
+  list-style-type: decimal !important;
+  padding-left: 1.5rem !important;
+  margin-top: 0.5rem !important;
+  margin-bottom: 0.5rem !important;
+}
+
+.rich-editor li {
+  margin-top: 0.25rem !important;
+  margin-bottom: 0.25rem !important;
+}
+
+
 

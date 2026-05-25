@@ -49,3 +49,8 @@ walkthrough*.md
 media*.png
 *.resolved*
 *.metadata.json
+
+# Backups and temp diffs
+diff_*.txt
+page_*.txt
+*.bak

@@ -1,8 +1,14 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
+import { requireAdminOrPermission } from "@/lib/apiAuth"
 
 export async function POST(request: Request) {
   try {
+    const authResult = await requireAdminOrPermission(request, "manage_team_roster")
+    if (authResult.error) {
+      return NextResponse.json({ success: false, error: authResult.error }, { status: authResult.status })
+    }
+
     const { userId, status } = await request.json()
 
     if (!userId || !status) {
@@ -49,10 +55,11 @@ export async function POST(request: Request) {
       success: true, 
       message: `Usuario marcado como ${status === 'active' ? 'activo' : 'inactivo'}` 
     })
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error in update-user-status:", error)
+    const errorMsg = error instanceof Error ? error.message : "Error al actualizar el estado del usuario"
     return NextResponse.json(
-      { error: error.message || "Error al actualizar el estado del usuario" },
+      { error: errorMsg },
       { status: 500 }
     )
   }

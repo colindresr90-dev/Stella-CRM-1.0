@@ -1,32 +1,32 @@
 import { NextResponse } from 'next/server';
-import { google } from 'googleapis';
 import { sendMeetingEmail } from '@/lib/email';
+import { requireAdminOrPermission } from '@/lib/apiAuth';
+import { getGoogleCalendarClient } from '@/lib/googleCalendar';
 
-export async function GET() {
+export async function GET(req: Request) {
+  const authResult = await requireAdminOrPermission(req);
+  if (authResult.error) {
+    return NextResponse.json({ success: false, error: authResult.error }, { status: authResult.status });
+  }
   return NextResponse.json({ status: 'ok' });
 }
 
 export async function POST(req: Request) {
   try {
+    const authResult = await requireAdminOrPermission(req);
+    if (authResult.error) {
+      return NextResponse.json({ success: false, error: authResult.error }, { status: authResult.status });
+    }
+
     const body = await req.json();
     const { lead_id, title, description, start_time, end_time, lead_email, lead_name } = body;
 
-    const email = process.env.GOOGLE_CLIENT_EMAIL?.trim();
-    const rawKey = process.env.GOOGLE_PRIVATE_KEY;
     const calendarId = process.env.GOOGLE_CALENDAR_ID;
-
-    if (!email || !rawKey || !calendarId) {
-      return NextResponse.json({ success: false, error: 'Config missing' }, { status: 500 });
+    if (!calendarId) {
+      return NextResponse.json({ success: false, error: 'GOOGLE_CALENDAR_ID missing' }, { status: 500 });
     }
 
-    const formattedKey = rawKey.replace(/\\n/g, '\n').trim();
-    const auth = new google.auth.JWT({
-      email: email,
-      key: formattedKey,
-      scopes: ['https://www.googleapis.com/auth/calendar']
-    });
-
-    const calendar = google.calendar({ version: 'v3', auth: auth as any });
+    const calendar = await getGoogleCalendarClient();
 
     const googleResponse = await calendar.events.insert({
       calendarId: calendarId,
@@ -63,9 +63,10 @@ export async function POST(req: Request) {
       email_sent: emailSent
     });
 
-  } catch (err: any) {
+  } catch (err) {
     console.error(err);
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+    const errMsg = err instanceof Error ? err.message : 'Error desconocido';
+    return NextResponse.json({ success: false, error: errMsg }, { status: 500 });
   }
 }
 

@@ -219,7 +219,7 @@ export const Header = ({ onMenuClick }: HeaderProps) => {
           <CircleHelp size={20} />
         </button>
         <div className="h-6 w-px bg-outline-variant/30 mx-2" />
-        {(userRole === 'admin') && (
+        {user && (
           <button 
             onClick={() => router.push('/settings')}
             className="text-sm font-medium text-secondary hover:text-primary transition-colors"

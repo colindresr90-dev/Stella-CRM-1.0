@@ -58,33 +58,14 @@ export default function SettingsPage() {
   const [newSource, setNewSource] = useState('')
   const [toast, setToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
 
+  // Removed signature-related states (moved to account page)
+
   const showToast = (text: string, type: 'success' | 'error') => {
     setToast({ text, type })
     setTimeout(() => setToast(null), 3000)
   }
 
-  useEffect(() => {
-    const init = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        router.push('/login')
-        return
-      }
-
-      const { role } = await getUserRole()
-      setUserRole(role)
-
-      if (role !== 'admin') {
-        router.push('/')
-        return
-      }
-
-      await fetchData()
-    }
-    init()
-  }, [])
-
-  const fetchData = async () => {
+  async function fetchData() {
     setLoading(true)
     try {
       // 1. Organization Settings via API Route
@@ -128,6 +109,27 @@ export default function SettingsPage() {
     }
   }
 
+  useEffect(() => {
+    const init = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        router.push('/login')
+        return
+      }
+
+      const { role } = await getUserRole()
+      setUserRole(role)
+
+      if (role !== 'admin') {
+        router.push('/account')
+        return
+      } else {
+        await fetchData()
+      }
+    }
+    init()
+  }, [router])
+
   const handleSaveGeneral = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!settings || saving) return
@@ -155,8 +157,9 @@ export default function SettingsPage() {
         throw new Error(errData.error || "Error al guardar la configuración en el servidor")
       }
       showToast("Configuración general guardada.", "success")
-    } catch (err: any) {
-      showToast(err.message, "error")
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Error al guardar general."
+      showToast(errMsg, "error")
     } finally {
       setSaving(false)
     }
@@ -180,8 +183,9 @@ export default function SettingsPage() {
       setPackages([...packages, data])
       setNewPackage({ name: '', price: '', description: '' })
       showToast("Paquete agregado.", "success")
-    } catch (err: any) {
-      showToast(err.message, "error")
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Error al agregar paquete."
+      showToast(errMsg, "error")
     } finally {
       setSaving(false)
     }
@@ -193,8 +197,9 @@ export default function SettingsPage() {
       if (error) throw error
       setPackages(packages.filter(p => p.id !== id))
       showToast("Paquete eliminado.", "success")
-    } catch (err: any) {
-      showToast(err.message, "error")
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Error al eliminar paquete."
+      showToast(errMsg, "error")
     }
   }
 
@@ -212,8 +217,9 @@ export default function SettingsPage() {
       setSources([...sources, data])
       setNewSource('')
       showToast("Fuente agregada.", "success")
-    } catch (err: any) {
-      showToast(err.message, "error")
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Error al agregar fuente."
+      showToast(errMsg, "error")
     } finally {
       setSaving(false)
     }
@@ -225,10 +231,13 @@ export default function SettingsPage() {
       if (error) throw error
       setSources(sources.filter(s => s.id !== id))
       showToast("Fuente eliminada.", "success")
-    } catch (err: any) {
-      showToast(err.message, "error")
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Error al eliminar fuente."
+      showToast(errMsg, "error")
     }
   }
+
+  // Removed signature-related handlers (moved to account page)
 
   if (loading) {
     return (
@@ -249,30 +258,39 @@ export default function SettingsPage() {
             </div>
             Settings
           </h1>
-          <p className="text-on-surface-variant mt-2 font-medium">Gestiona la configuración global de tu negocio.</p>
+          <p className="text-on-surface-variant mt-2 font-medium">
+            {userRole === 'admin' 
+              ? "Gestiona la configuración global de tu negocio." 
+              : "Gestiona tu firma de correo y preferencias personales."}
+          </p>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-surface-container-low p-1.5 rounded-2xl mb-8 w-fit border border-outline-variant/10 shadow-sm">
-        <button
-          onClick={() => setActiveTab('general')}
-          className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'general' ? 'bg-white text-primary shadow-sm ring-1 ring-black/5' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high'}`}
-        >
-          <Building2 size={18} /> General
-        </button>
-        <button
-          onClick={() => setActiveTab('ventas')}
-          className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'ventas' ? 'bg-white text-primary shadow-sm ring-1 ring-black/5' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high'}`}
-        >
-          <Package size={18} /> Ventas
-        </button>
-        <button
-          onClick={() => setActiveTab('leads')}
-          className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'leads' ? 'bg-white text-primary shadow-sm ring-1 ring-black/5' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high'}`}
-        >
-          <Users size={18} /> Prospectos
-        </button>
+      <div className="flex flex-wrap gap-1 bg-surface-container-low p-1.5 rounded-2xl mb-8 w-fit border border-outline-variant/10 shadow-sm">
+        {userRole === 'admin' && (
+          <>
+            <button
+              onClick={() => setActiveTab('general')}
+              className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'general' ? 'bg-white text-primary shadow-sm ring-1 ring-black/5' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high'}`}
+            >
+              <Building2 size={18} /> General
+            </button>
+            <button
+              onClick={() => setActiveTab('ventas')}
+              className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'ventas' ? 'bg-white text-primary shadow-sm ring-1 ring-black/5' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high'}`}
+            >
+              <Package size={18} /> Ventas
+            </button>
+            <button
+              onClick={() => setActiveTab('leads')}
+              className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'leads' ? 'bg-white text-primary shadow-sm ring-1 ring-black/5' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high'}`}
+            >
+              <Users size={18} /> Prospectos
+            </button>
+          </>
+        )}
+        {/* Removed signature tab */}
       </div>
 
       <div className="relative">

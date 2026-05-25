@@ -9,7 +9,7 @@ import {
   Users, 
   BadgeCheck,
   X,
-  Menu
+  User
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { getUserRole } from "@/lib/authHelper";
@@ -45,6 +45,7 @@ export const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
       icon: BadgeCheck,
       hidden: userRole !== 'admin' && !permissions.includes('access_team_page')
     },
+    { id: 'account', label: 'Mi cuenta', href: '/account', icon: User },
   ] as const;
 
   const isActive = (href: string) => {

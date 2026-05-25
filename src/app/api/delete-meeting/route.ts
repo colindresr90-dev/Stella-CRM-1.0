@@ -1,9 +1,15 @@
 import { NextResponse } from 'next/server';
-import { google } from 'googleapis';
 import { sendMeetingEmail } from '@/lib/email';
+import { requireAdminOrPermission } from '@/lib/apiAuth';
+import { getGoogleCalendarClient } from '@/lib/googleCalendar';
 
 export async function POST(req: Request) {
   try {
+    const authResult = await requireAdminOrPermission(req);
+    if (authResult.error) {
+      return NextResponse.json({ success: false, error: authResult.error }, { status: authResult.status });
+    }
+
     const { 
       event_id, 
       lead_name, 
@@ -15,26 +21,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: 'Faltan campos requeridos' }, { status: 400 });
     }
 
-    // 1. Google Auth
-    const email = process.env.GOOGLE_CLIENT_EMAIL?.trim();
-    const rawKey = process.env.GOOGLE_PRIVATE_KEY;
-
-    if (!email || !rawKey) {
-      throw new Error('Google credentials missing.');
-    }
-
-    let key = rawKey.trim();
-    if (key.startsWith('"') && key.endsWith('"')) key = key.substring(1, key.length - 1);
-    const formattedKey = key.replace(/\\n/g, '\n').replace(/\n/g, '\n').trim();
-
-    const auth = new google.auth.JWT({
-      email: email,
-      key: formattedKey,
-      scopes: ['https://www.googleapis.com/auth/calendar']
-    });
-
     // 2. Delete from Google Calendar
-    const calendar = google.calendar({ version: 'v3', auth: auth as any });
+    const calendar = await getGoogleCalendarClient();
     const calendarId = process.env.GOOGLE_CALENDAR_ID;
 
     await calendar.events.delete({
@@ -57,11 +45,12 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ success: true }, { status: 200 });
 
-  } catch (error: any) {
+  } catch (error) {
     console.error('Error deleting meeting:', error);
+    const errorMsg = error instanceof Error ? error.message : 'Error al eliminar reunión';
     return NextResponse.json({ 
       success: false, 
-      error: error.message || 'Error al eliminar reunión' 
+      error: errorMsg 
     }, { status: 500 });
   }
 }
