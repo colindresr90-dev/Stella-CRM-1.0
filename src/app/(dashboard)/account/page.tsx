@@ -752,13 +752,13 @@ export default function AccountPage() {
                       <hr style={{ border: '0', borderTop: '1px solid #e2e8f0', margin: '10px 0 15px 0' }} />
                       <div style={logoLayout === 'top' ? { display: 'flex', flexDirection: 'column', gap: '12px' } : { display: 'flex', alignItems: 'flex-start', gap: '16px' }}>
                         {logo && (
-                          <div style={{ flexShrink: 0, maxWidth: logoLayout === 'top' ? '200px' : '100px' }}>
+                          <div style={{ flexShrink: 0, maxWidth: logoLayout === 'top' ? '250px' : '150px' }}>
                             <img 
                               src={logo} 
                               alt="Logo" 
                               style={{ 
-                                maxHeight: logoLayout === 'top' ? '96px' : '56px', 
-                                maxWidth: logoLayout === 'top' ? '200px' : '100px', 
+                                maxHeight: logoLayout === 'top' ? '120px' : '80px', 
+                                maxWidth: logoLayout === 'top' ? '250px' : '150px', 
                                 objectFit: 'contain' 
                               }} 
                             />

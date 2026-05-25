@@ -199,13 +199,18 @@ export function LeadEmails({
               
               if (hasSignature && shouldInclude !== false) {
                 // Build signature HTML
+                const isLayoutTop = parsed.logoLayout === 'top'
+                const containerMaxWidth = isLayoutTop ? '250px' : '150px'
+                const imgMaxHeight = isLayoutTop ? '120px' : '80px'
+                const imgMaxWidth = isLayoutTop ? '250px' : '150px'
+
                 const logoHtml = parsed.logo ? `
-                  <div style="flex-shrink: 0; max-width: 120px;">
-                    <img src="${parsed.logo}" alt="Logo" style="max-height: 64px; max-width: 120px; object-fit: contain;" />
+                  <div style="flex-shrink: 0; max-width: ${containerMaxWidth};">
+                    <img src="${parsed.logo}" alt="Logo" style="max-height: ${imgMaxHeight}; max-width: ${imgMaxWidth}; object-fit: contain;" />
                   </div>
                 ` : ""
                 
-                const layoutStyle = parsed.logoLayout === 'top' 
+                const layoutStyle = isLayoutTop 
                   ? 'display: flex; flex-direction: column; gap: 8px;'
                   : 'display: flex; align-items: flex-start; gap: 16px;'
                 
