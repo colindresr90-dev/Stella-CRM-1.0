@@ -43,7 +43,25 @@ export async function POST(request: Request) {
     interface AttachmentType {
       filename: string;
       content: string;
+      encoding?: string;
+      cid?: string;
     }
+
+    const processedAttachments: AttachmentType[] = []
+
+    // Process inline base64 images in htmlText (like signature logos)
+    let processedHtml = htmlText
+    let imageIndex = 1
+    processedHtml = htmlText.replace(/src=["']data:image\/([a-zA-Z+.-]+);base64,([^"']+)["']/g, (match: string, ext: string, base64Content: string) => {
+      const cid = `inline_img_${Date.now()}_${imageIndex++}`
+      processedAttachments.push({
+        filename: `signature_logo_${imageIndex - 1}.${ext}`,
+        content: base64Content,
+        encoding: 'base64',
+        cid: cid
+      })
+      return `src="cid:${cid}"`
+    })
 
     const mailOptions: {
       from: string;
@@ -52,12 +70,12 @@ export async function POST(request: Request) {
       html: string;
       cc?: string;
       bcc?: string;
-      attachments?: Array<{ filename: string; content: string; encoding: string }>;
+      attachments?: AttachmentType[];
     } = {
       from: '"Taskmasters CRM" <info@taskmasters.site>',
       to,
       subject,
-      html: htmlText
+      html: processedHtml
     }
 
     if (cc) {
@@ -67,11 +85,15 @@ export async function POST(request: Request) {
       mailOptions.bcc = bcc
     }
     if (attachments && Array.isArray(attachments) && attachments.length > 0) {
-      mailOptions.attachments = (attachments as AttachmentType[]).map((att) => ({
+      processedAttachments.push(...(attachments as AttachmentType[]).map((att) => ({
         filename: att.filename,
         content: att.content,
         encoding: 'base64'
-      }))
+      })))
+    }
+
+    if (processedAttachments.length > 0) {
+      mailOptions.attachments = processedAttachments
     }
 
     console.log(`[SMTP] Sending email to ${to}...`)
