@@ -4,6 +4,7 @@ const next = require('next');
 const { Server } = require('socket.io');
 const { ImapFlow } = require('imapflow');
 const { simpleParser } = require('mailparser');
+const { startEmailWorker } = require('./lib/emailWorker');
 
 // Load Next.js environment config
 const { loadEnvConfig } = require('@next/env');
@@ -57,8 +58,9 @@ app.prepare().then(() => {
     console.log(`> Ready on http://localhost:${port}`);
   });
 
-  // Start the IMAP IDLE listener in the background
+  // Start background workers
   startImapListener(io);
+  startEmailWorker();
 });
 
 async function startImapListener(io) {

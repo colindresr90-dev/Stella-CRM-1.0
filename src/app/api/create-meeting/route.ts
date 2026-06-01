@@ -27,39 +27,84 @@ export async function POST(req: Request) {
     }
 
     const calendar = await getGoogleCalendarClient();
+    const startDate = new Date(start_time);
 
-    const googleResponse = await calendar.events.insert({
-      calendarId: calendarId,
-      requestBody: {
-        summary: title,
-        description: description,
-        start: { dateTime: start_time },
-        end: { dateTime: end_time }
+    let googleResponse;
+    let meetLink = null;
+    let conferenceError = null;
+
+    try {
+      // 1. Try to create Google Calendar event with Google Meet data
+      googleResponse = await calendar.events.insert({
+        calendarId: calendarId,
+        conferenceDataVersion: 1,
+        requestBody: {
+          summary: title,
+          description: description,
+          start: { dateTime: start_time },
+          end: { dateTime: end_time },
+          conferenceData: {
+            createRequest: {
+              requestId: `meet-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+              conferenceSolutionKey: {
+                type: 'hangoutsMeet'
+              }
+            }
+          }
+        }
+      });
+      meetLink = googleResponse.data.hangoutLink || null;
+    } catch (insertErr) {
+      // If error is invalid conference type/settings, fallback to regular calendar insert
+      const errMsg = insertErr instanceof Error ? insertErr.message : '';
+      const isConferenceError = 
+        errMsg.includes('conference') || 
+        errMsg.includes('Invalid conference') ||
+        errMsg.includes('allowedConferenceSolutionTypes');
+
+      if (isConferenceError) {
+        console.warn('Google Meet generation failed (likely due to service account/calendar limitations). Retrying without conference data...');
+        conferenceError = errMsg;
+        googleResponse = await calendar.events.insert({
+          calendarId: calendarId,
+          requestBody: {
+            summary: title,
+            description: description,
+            start: { dateTime: start_time },
+            end: { dateTime: end_time }
+          }
+        });
+      } else {
+        // Rethrow other errors (auth, validation, etc.)
+        throw insertErr;
       }
-    });
+    }
 
+    // 2. Send confirmation email with the Meet link (if available)
     let emailSent = false;
     if (lead_email) {
       try {
-        const startDate = new Date(start_time);
         const emailResult = await sendMeetingEmail({
           to: lead_email,
-          subject: 'Confirmacion de reunion',
+          subject: 'Confirmación de reunión',
           leadName: lead_name || 'Cliente',
           meetingTitle: title,
-          date: startDate.toLocaleDateString(),
-          time: startDate.toLocaleTimeString(),
+          date: startDate.toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' }),
+          time: startDate.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }),
+          meetingLink: meetLink || undefined,
           type: 'created'
         });
         emailSent = emailResult.success;
       } catch (e) {
-        console.error(e);
+        console.error('Error sending email:', e);
       }
     }
 
-    return NextResponse.json({ 
-      success: true, 
+    return NextResponse.json({
+      success: true,
       google_event_id: googleResponse.data.id,
+      meet_link: meetLink,
+      meet_error: conferenceError,
       email_sent: emailSent
     });
 

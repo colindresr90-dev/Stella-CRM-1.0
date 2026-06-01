@@ -76,7 +76,7 @@ export async function sendMeetingEmail(params: EmailParams) {
                 <div class="detail-label">Reunión</div>
                 <div class="detail-value">${meetingTitle}</div>
               </div>
-              <div style="display: flex; gap: 40px;">
+              <div style="display: flex; gap: 40px; margin-bottom: 20px;">
                 <div style="flex: 1;">
                   <div class="detail-label">Fecha</div>
                   <div class="detail-value">${date}</div>
@@ -86,13 +86,28 @@ export async function sendMeetingEmail(params: EmailParams) {
                   <div class="detail-value">${time}</div>
                 </div>
               </div>
+              ${meetingLink ? `
+              <div style="margin-top: 20px; border-top: 1px solid #f0f0f4; padding-top: 15px;">
+                <div class="detail-label">Enlace de la videollamada (Google Meet)</div>
+                <div class="detail-value">
+                  <a href="${meetingLink}" target="_blank" style="color: #6b21a8; font-weight: bold; text-decoration: underline;">
+                    Unirse a la reunión
+                  </a>
+                  <div style="font-size: 13px; color: #666; margin-top: 4px; font-weight: normal; word-break: break-all;">
+                    ${meetingLink}
+                  </div>
+                </div>
+              </div>
+              ` : ''}
             </div>
 
+            ${!meetingLink ? `
             <div class="note-card">
               <div class="note-text">
                 <strong>Importante:</strong> En unos minutos estarás recibiendo un correo adicional con los detalles finales y el link para unirte a la reunión.
               </div>
             </div>
+            ` : ''}
           ` : ''}
           
           <p style="margin-top: 30px; font-size: 14px; color: #777;">

@@ -16,6 +16,10 @@ export function LeadActivities({
   onViewAllClick: () => void
 }) {
   const [filter, setFilter] = useState<ActivityFilter>('all')
+  const [mounted, setMounted] = useState(false)
+  React.useEffect(() => {
+    setMounted(true)
+  }, [])
 
   // Query activities using TanStack Query
   const { data: activities = [], isLoading } = useQuery({
@@ -112,8 +116,21 @@ export function LeadActivities({
     }
   }
 
+  const parseDate = (str: string | null | undefined) => {
+    if (!str) return new Date()
+    const normalized = str.replace(' ', 'T')
+    if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+      return new Date(normalized)
+    }
+    const hasTimezone = normalized.endsWith('Z') || 
+                        normalized.includes('+') || 
+                        (normalized.includes('T') && normalized.indexOf('-', normalized.indexOf('T')) !== -1)
+    
+    return new Date(hasTimezone ? normalized : `${normalized}Z`)
+  }
+
   const formatActivityDate = (dateStr: string) => {
-    const d = new Date(dateStr)
+    const d = parseDate(dateStr)
     return d.toLocaleDateString('es-ES', { 
       day: 'numeric', 
       month: 'short' 
@@ -198,7 +215,7 @@ export function LeadActivities({
                       </span>
                     </div>
                     <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
-                      {formatActivityDate(activity.created_at)}
+                      {mounted ? formatActivityDate(activity.created_at) : '...'}
                     </span>
                   </div>
 

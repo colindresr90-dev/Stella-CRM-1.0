@@ -15,6 +15,7 @@ import {
 } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { useProfiles } from "@/hooks/useProfiles"
 
 type Lead = {
   id: string
@@ -96,7 +97,8 @@ export default function LeadsPage() {
     notes: "",
     assigned_to: "",
     industry: "",
-    package: ""
+    package: "",
+    status: "nuevo"
   })
 
   // Export CSV options
@@ -134,7 +136,7 @@ export default function LeadsPage() {
     setCurrentPage(1)
   }, [searchTerm, statusFilter, agentFilter, sourceFilter, dateRangeType, dateFrom, dateTo])
 
-  const statusOptions = ['nuevo', 'contactado', 'reunión', 'demo', 'propuesta', 'perdido']
+  const statusOptions = ['nuevo', 'contactado', 'reunión', 'demo', 'propuesta', 'perdido', 'no interesado', 'no contactar']
 
   // Fetch Session & Roles
   useEffect(() => {
@@ -177,27 +179,22 @@ export default function LeadsPage() {
   // TanStack Queries
   const { data: leads = [], isLoading: isLoadingLeads } = useQuery({
     queryKey: ['leads'],
+    staleTime: 2 * 60 * 1000,
     queryFn: async () => {
+      // Profiles joined inline — eliminates a separate round-trip
       const { data: leadsData, error } = await supabase
         .from('leads')
-        .select('*')
+        .select(`
+          id, business_name, contact_name, phone, email, source, notes, status,
+          assigned_to, created_at, deposit_amount, pending_amount, payment_status,
+          package, sale_price, reminder_date, reminder_note, reminder_time, industry,
+          assigned_user:profiles!assigned_to ( name )
+        `)
         .order('created_at', { ascending: false })
+        .limit(2000)
 
       if (error) throw error
       if (!leadsData) return []
-
-      // Batch Profiles
-      const assignedIds = [...new Set(leadsData.map((l: any) => l.assigned_to).filter(Boolean))]
-      let profileMap: Record<string, string> = {}
-      if (assignedIds.length > 0) {
-        const { data: profiles } = await supabase
-          .from('profiles')
-          .select('id, name')
-          .in('id', assignedIds)
-        if (profiles) {
-          profiles.forEach((p: any) => { profileMap[p.id] = p.name })
-        }
-      }
 
       // Batch Uncompleted Reminders
       const leadIds = leadsData.map((l: any) => l.id)
@@ -219,25 +216,13 @@ export default function LeadsPage() {
 
       return leadsData.map((lead: any) => ({
         ...lead,
-        assigned_user: lead.assigned_to && profileMap[lead.assigned_to]
-          ? { name: profileMap[lead.assigned_to] }
-          : null,
+        assigned_user: Array.isArray(lead.assigned_user) ? lead.assigned_user[0] : lead.assigned_user,
         reminders: remindersMap[lead.id] || []
       })) as Lead[]
     }
   })
 
-  const { data: allProfiles = [] } = useQuery({
-    queryKey: ['profiles'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, name')
-        .order('name')
-      if (error) throw error
-      return (data || []) as { id: string; name: string }[]
-    }
-  })
+  const { data: allProfiles = [] } = useProfiles()
 
   // Dynamic list of unique sources
   const allSources = [...new Set(leads.map(l => l.source).filter(Boolean))] as string[]
@@ -285,6 +270,7 @@ export default function LeadsPage() {
         notes: "",
         industry: "",
         package: "",
+        status: "nuevo",
         assigned_to: user?.id || ""
       })
     },
@@ -428,6 +414,8 @@ export default function LeadsPage() {
       case 'demo': return { container: 'bg-indigo-50/70 text-indigo-700 border-indigo-100', dot: 'bg-indigo-500' }
       case 'propuesta': return { container: 'bg-purple-50/70 text-purple-700 border-purple-100', dot: 'bg-purple-500' }
       case 'perdido': return { container: 'bg-red-50/70 text-red-700 border-red-100', dot: 'bg-red-500' }
+      case 'no interesado': return { container: 'bg-slate-50/70 text-slate-700 border-slate-200/60', dot: 'bg-slate-400' }
+      case 'no contactar': return { container: 'bg-rose-50/70 text-rose-700 border-rose-100', dot: 'bg-rose-500' }
       default: return { container: 'bg-gray-50/70 text-gray-700 border-gray-100', dot: 'bg-gray-500' }
     }
   }
@@ -440,7 +428,7 @@ export default function LeadsPage() {
     try {
       let query = supabase
         .from('leads')
-        .select('*')
+        .select('id, business_name, contact_name, phone, email, status, source, assigned_to, created_at')
         .gte('created_at', `${exportOptions.fromDate}T00:00:00`)
         .lte('created_at', `${exportOptions.toDate}T23:59:59`)
       
@@ -541,7 +529,7 @@ export default function LeadsPage() {
       notes: formData.notes.trim() || null,
       industry: formData.industry || null,
       package: formData.package || null,
-      status: 'nuevo',
+      status: formData.status || 'nuevo',
       assigned_to: finalAssignment,
       created_by: user.id
     })
@@ -567,7 +555,7 @@ export default function LeadsPage() {
     if (lead.status === 'venta') return false;
 
     const matchesStatus = statusFilter === 'Todos' 
-      ? lead.status !== 'perdido' 
+      ? (lead.status !== 'perdido' && lead.status !== 'no interesado' && lead.status !== 'no contactar') 
       : (lead.status || 'nuevo').toLowerCase() === statusFilter.toLowerCase();
     
     const matchesAgent = agentFilter === 'Todos' || lead.assigned_to === agentFilter;
@@ -638,7 +626,7 @@ export default function LeadsPage() {
     return pages
   }
 
-  const activeLeadsCount = leads.filter(l => l.status !== 'perdido' && l.status !== 'venta').length
+  const activeLeadsCount = leads.filter(l => l.status !== 'perdido' && l.status !== 'venta' && l.status !== 'no interesado' && l.status !== 'no contactar').length
   const hasActiveFilters = searchTerm !== '' || statusFilter !== 'Todos' || agentFilter !== 'Todos' || sourceFilter !== 'Todos' || dateRangeType !== 'Todos'
 
   if (isLoadingLeads || !user) {
@@ -1228,6 +1216,21 @@ export default function LeadsPage() {
                     <option value="Sitio Web con Ecommerce">Sitio Web con Ecommerce</option>
                     <option value="Sitio Web Interactivo con Reservas">Sitio Web Interactivo con Reservas</option>
                     <option value="Otro">Otro</option>
+                  </select>
+                </div>
+
+                {/* Estado */}
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider pl-1">Estado</label>
+                  <select
+                    name="status"
+                    value={formData.status}
+                    onChange={handleInputChange}
+                    className="w-full px-3 py-2.5 bg-gray-50/70 border border-slate-200 rounded-xl text-sm text-black focus:bg-white focus:ring-2 focus:ring-blue-500/10 outline-none transition-all cursor-pointer capitalize"
+                  >
+                    {statusOptions.map(st => (
+                      <option key={st} value={st} className="capitalize">{st}</option>
+                    ))}
                   </select>
                 </div>
 

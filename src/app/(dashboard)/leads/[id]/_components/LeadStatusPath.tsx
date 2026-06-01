@@ -23,7 +23,9 @@ const stageLabels: Record<string, string> = {
   demo: 'Demo',
   propuesta: 'Propuesta',
   venta: 'Ganado',
-  perdido: 'Perdido'
+  perdido: 'Perdido',
+  'no interesado': 'No interesado',
+  'no contactar': 'No contactar'
 }
 
 export function LeadStatusPath({
@@ -36,7 +38,7 @@ export function LeadStatusPath({
 }: LeadStatusPathProps) {
   const currentStatus = lead.status.toLowerCase()
   const isClosedWon = currentStatus === 'venta'
-  const isClosedLost = currentStatus === 'perdido'
+  const isClosedLost = currentStatus === 'perdido' || currentStatus === 'no interesado' || currentStatus === 'no contactar'
 
   // Index of current stage in sequential stages
   const currentStageIndex = sequentialStages.indexOf(currentStatus)
@@ -51,14 +53,14 @@ export function LeadStatusPath({
     <motion.div
       initial={{ opacity: 0, y: -10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="bg-white border border-slate-100 rounded-3xl p-4 flex flex-col md:flex-row items-center gap-4 mb-6 shadow-[0_2px_12px_rgba(0,0,0,0.02)]"
+      className="bg-white border-[0.5px] border-slate-200 rounded-[12px] p-4 flex flex-col md:flex-row items-center gap-4 shadow-none"
     >
       {/* Title Section */}
       <div className="flex items-center gap-2 shrink-0 self-start md:self-center pl-1">
         <div>
-          <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider">Embudo de Ventas</h3>
-          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">
-            Fase actual: <span className="text-primary font-black">{stageLabels[currentStatus] || currentStatus}</span>
+          <h3 className="text-xs font-bold text-slate-500 font-headline">Embudo de Ventas</h3>
+          <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mt-0.5">
+            Fase actual: <span className="text-primary font-bold">{stageLabels[currentStatus] || currentStatus}</span>
           </p>
         </div>
       </div>
@@ -81,7 +83,7 @@ export function LeadStatusPath({
 
           let stageStyle = ""
           if (isCurrent) {
-            stageStyle = 'bg-blue-600 text-white border-blue-600 shadow-[0_4px_10px_rgba(37,99,235,0.18)]'
+            stageStyle = 'bg-primary text-white border-primary shadow-sm'
           } else if (isCompleted) {
             stageStyle = 'bg-emerald-50 text-emerald-700 border-emerald-200/45 hover:bg-emerald-100/70'
           } else if (isLostStyle) {
@@ -96,7 +98,7 @@ export function LeadStatusPath({
               <button
                 onClick={() => !isLostStyle && handleStageClick(stage)}
                 disabled={isPending || reopenLoading || isLostStyle}
-                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-2xl text-xs font-bold transition-all border cursor-pointer select-none shrink-0 ${stageStyle}`}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-bold transition-all border cursor-pointer select-none shrink-0 ${stageStyle}`}
               >
                 {isCompleted ? (
                   <Check size={11} strokeWidth={3} className="text-emerald-600 shrink-0" />
@@ -112,7 +114,7 @@ export function LeadStatusPath({
                   className={`hidden sm:inline-block shrink-0 ${
                     isCompleted ? 'text-emerald-400' : 'text-slate-300'
                   }`} 
-                />
+                  />
               )}
             </React.Fragment>
           )
@@ -122,7 +124,7 @@ export function LeadStatusPath({
         {isClosedWon && (
           <>
             <ChevronRight size={12} className="hidden sm:inline-block shrink-0 text-emerald-400" />
-            <div className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 text-white border border-emerald-600 rounded-2xl text-xs font-black uppercase tracking-wider shadow-[0_4px_12px_rgba(16,185,129,0.25)] shrink-0 select-none">
+            <div className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-650 text-white border border-emerald-700 rounded-lg text-xs font-bold uppercase shrink-0 select-none shadow-sm">
               <CheckCircle2 size={12} />
               <span>Ganado</span>
             </div>
@@ -142,10 +144,22 @@ export function LeadStatusPath({
         {/* Closed Lost Badge */}
         {isClosedLost && (
           <>
-            <ChevronRight size={12} className="hidden sm:inline-block shrink-0 text-red-300" />
-            <div className="flex items-center gap-1.5 px-3.5 py-2 bg-red-600 text-white border border-red-650 rounded-2xl text-xs font-black uppercase tracking-wider shadow-[0_4px_12px_rgba(220,38,38,0.25)] shrink-0 select-none">
+            <ChevronRight 
+              size={12} 
+              className={`hidden sm:inline-block shrink-0 ${
+                currentStatus === 'perdido' ? 'text-red-300' :
+                currentStatus === 'no interesado' ? 'text-slate-300' : 'text-rose-300'
+              }`} 
+            />
+            <div className={`flex items-center gap-1.5 px-3.5 py-2 text-white border rounded-lg text-xs font-bold uppercase shrink-0 select-none shadow-sm ${
+              currentStatus === 'perdido' 
+                ? 'bg-red-600 border-red-650' 
+                : currentStatus === 'no interesado'
+                  ? 'bg-slate-500 border-slate-550'
+                  : 'bg-rose-600 border-rose-650'
+            }`}>
               <XCircle size={12} />
-              <span>Perdido</span>
+              <span>{stageLabels[currentStatus]}</span>
             </div>
             {userRole === 'admin' && (
               <button

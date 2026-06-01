@@ -11,6 +11,32 @@ export interface CreateNotificationParams {
 }
 
 /**
+ * Sends multiple notifications in a single API call.
+ * Use instead of multiple sequential createNotification calls.
+ */
+export async function createNotifications(notifications: CreateNotificationParams[]) {
+  if (notifications.length === 0) return { success: true }
+  if (notifications.length === 1) return createNotification(notifications[0])
+
+  try {
+    const response = await fetch('/api/notifications', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notifications }),
+    })
+    const result = await response.json()
+    if (!response.ok) {
+      console.error('Error via API creating notifications batch:', result.error)
+      throw new Error(result.error || 'Failed to create notifications batch')
+    }
+    return { success: true, data: result.data }
+  } catch (error: any) {
+    console.error('Error creating notifications batch:', error?.message || error)
+    return { success: false, error: error?.message || error }
+  }
+}
+
+/**
  * Creates a notification in the database.
  * If type is 'reminder', it checks if a similar notification was already created today to avoid spam.
  */

@@ -39,6 +39,26 @@ type PageProps = {
   params: Promise<{ id: string }>
 }
 
+const parseDate = (str: string | null | undefined) => {
+  if (!str) return new Date()
+  const normalized = str.replace(' ', 'T')
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    return new Date(normalized)
+  }
+  const hasTimezone = normalized.endsWith('Z') || 
+                      normalized.includes('+') || 
+                      (normalized.includes('T') && normalized.indexOf('-', normalized.indexOf('T')) !== -1)
+  
+  return new Date(hasTimezone ? normalized : `${normalized}Z`)
+}
+
+const formatLocalDateString = (d: Date) => {
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 export default function LeadDetailPage({ params }: PageProps) {
   const { id } = use(params)
   const router = useRouter()
@@ -101,13 +121,6 @@ export default function LeadDetailPage({ params }: PageProps) {
       if (error) throw error
 
       await insertActivity(id, user.id, 'note', 'Nota agregada')
-      await createNotification({
-        user_id: user.id,
-        title: 'Nota Guardada',
-        message: `Has agregado una nueva nota en ${lead?.business_name}`,
-        type: 'update',
-        related_id: id
-      })
       return data
     },
     onSuccess: () => {
@@ -141,35 +154,25 @@ export default function LeadDetailPage({ params }: PageProps) {
         .select('*')
         .eq('id', id)
         .single()
-      
+
       if (leadError) throw leadError
       if (!leadData) throw new Error('Lead no encontrado')
 
-      let assignedUser = null
-      let creator = null
-
-      if (leadData.assigned_to) {
-        const { data: assignedProfile } = await supabase
+      // Fetch assigned user and creator names separately (no FK constraint needed)
+      const uids = [...new Set([leadData.assigned_to, leadData.created_by].filter(Boolean))]
+      let profileMap: Record<string, string> = {}
+      if (uids.length > 0) {
+        const { data: profiles } = await supabase
           .from('profiles')
           .select('id, name')
-          .eq('id', leadData.assigned_to)
-          .single()
-        assignedUser = assignedProfile || null
-      }
-
-      if (leadData.created_by) {
-        const { data: creatorProfile } = await supabase
-          .from('profiles')
-          .select('name')
-          .eq('id', leadData.created_by)
-          .single()
-        creator = creatorProfile || null
+          .in('id', uids)
+        profiles?.forEach((p: any) => { profileMap[p.id] = p.name })
       }
 
       return {
         ...leadData,
-        assigned_user: assignedUser,
-        creator: creator,
+        assigned_user: leadData.assigned_to ? { id: leadData.assigned_to, name: profileMap[leadData.assigned_to] || null } : null,
+        creator: leadData.created_by ? { name: profileMap[leadData.created_by] || null } : null,
       } as Lead
     }
   })
@@ -179,9 +182,10 @@ export default function LeadDetailPage({ params }: PageProps) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('notes')
-        .select('*')
+        .select('id, lead_id, content, created_by, created_at')
         .eq('lead_id', id)
         .order('created_at', { ascending: false })
+        .limit(100)
       if (error) throw error
       return data as Note[]
     }
@@ -190,30 +194,31 @@ export default function LeadDetailPage({ params }: PageProps) {
   const { data: activities = [] } = useQuery({
     queryKey: ['activities', id],
     queryFn: async () => {
-      const { data: joinData, error: joinError } = await supabase
+      const { data, error } = await supabase
         .from('activities')
-        .select(`
-          *,
-          creator:profiles!created_by ( name )
-        `)
+        .select('id, lead_id, type, description, created_by, created_at')
         .eq('lead_id', id)
         .order('created_at', { ascending: false })
-      
-      if (!joinError && joinData) {
-        return joinData.map((a: any) => ({
-          ...a,
-          creator: Array.isArray(a.creator) ? a.creator[0] : a.creator
-        })) as Activity[]
+        .limit(150)
+
+      if (error) throw error
+      if (!data || data.length === 0) return []
+
+      // Fetch creator names separately
+      const uids = [...new Set(data.map((a: any) => a.created_by).filter(Boolean))]
+      let profileMap: Record<string, string> = {}
+      if (uids.length > 0) {
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('id, name')
+          .in('id', uids)
+        profiles?.forEach((p: any) => { profileMap[p.id] = p.name })
       }
 
-      const { data: plainData, error: plainError } = await supabase
-        .from('activities')
-        .select('*')
-        .eq('lead_id', id)
-        .order('created_at', { ascending: false })
-      
-      if (plainError) throw plainError
-      return (plainData || []) as Activity[]
+      return data.map((a: any) => ({
+        ...a,
+        creator: a.created_by ? { name: profileMap[a.created_by] || null } : null
+      })) as Activity[]
     }
   })
 
@@ -246,9 +251,10 @@ export default function LeadDetailPage({ params }: PageProps) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('meetings')
-        .select('*')
+        .select('id, lead_id, title, description, start_time, end_time, created_at')
         .eq('lead_id', id)
         .order('start_time', { ascending: true })
+        .limit(100)
       if (error) throw error
       return (data || []) as Meeting[]
     }
@@ -373,14 +379,6 @@ export default function LeadDetailPage({ params }: PageProps) {
         
       await insertActivity(id, user.id, 'status_change', activityDesc)
 
-      await createNotification({
-        user_id: user.id,
-        title: 'Estado Actualizado',
-        message: `Has cambiado el estado a: ${status}`,
-        type: 'update',
-        related_id: id
-      })
-
       if (lead?.assigned_to && lead.assigned_to !== user.id) {
         await createNotification({
           user_id: lead.assigned_to,
@@ -433,15 +431,6 @@ export default function LeadDetailPage({ params }: PageProps) {
       
       if (error) throw error
 
-      if (!reminder.is_completed) {
-        await createNotification({
-          user_id: user.id,
-          title: 'Recordatorio completado',
-          message: `Has marcado como completado un recordatorio para ${lead?.business_name || 'un lead'}`,
-          type: 'reminder',
-          related_id: id
-        })
-      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['reminders', id] })
@@ -553,14 +542,6 @@ export default function LeadDetailPage({ params }: PageProps) {
         await insertActivity(id, user.id, 'system', 'Correo de cancelación de reunión enviado')
       }
 
-      await createNotification({
-        user_id: user.id,
-        title: 'Cita Cancelada',
-        message: `Has cancelado la cita: ${meeting.title}`,
-        type: 'meeting',
-        related_id: id
-      })
-
       if (lead?.assigned_to && lead.assigned_to !== user.id) {
         await createNotification({
           user_id: lead.assigned_to,
@@ -614,6 +595,8 @@ export default function LeadDetailPage({ params }: PageProps) {
     )
   }
 
+  const lastActivityDate = activities[0]?.created_at || lead.created_at
+
   return (
     <div className="bg-[#F5F5F5] -mx-4 md:-mx-8 -my-4 md:-my-8 px-4 h-[calc(100vh-80px)] overflow-hidden font-sans antialiased text-slate-800 flex flex-col py-3">
       {/* Back Link */}
@@ -656,11 +639,22 @@ export default function LeadDetailPage({ params }: PageProps) {
             }}
             onReminderClick={() => setShowReminderModal(true)}
             onBackClick={() => router.push('/leads')}
+            lastActivityDate={lastActivityDate}
           />
         </div>
 
         {/* Column 2 (Center, Flexible) - Tabbed Content */}
         <div className="w-full lg:flex-1 min-w-0 h-full flex flex-col gap-3">
+          {/* Visual Status Path Stepper */}
+          <LeadStatusPath
+            lead={lead}
+            onStatusChange={(status) => updateStatusMutation.mutate({ status })}
+            onReopenLead={() => reopenLeadMutation.mutate()}
+            isPending={updateStatusMutation.isPending}
+            reopenLoading={reopenLeadMutation.isPending}
+            userRole={userRole}
+          />
+
           {/* Tabs Switcher */}
           <div className="bg-white border-[0.5px] border-slate-200 rounded-[12px] p-1.5 flex gap-1 overflow-x-auto shrink-0 select-none">
             {[
@@ -785,12 +779,17 @@ export default function LeadDetailPage({ params }: PageProps) {
                 user={user}
                 userRole={userRole}
                 permissions={permissions}
+                onAddMeetingClick={() => {
+                  setEditingMeeting(null)
+                  setMeetingForm({ title: '', date: '', time: '', duration: '30', description: '', email: lead?.email || '' })
+                  setShowMeetingModal(true)
+                }}
                 onEditMeetingClick={(meeting) => {
-                  const startDate = new Date(meeting.start_time)
+                  const startDate = parseDate(meeting.start_time)
                   setEditingMeeting(meeting)
                   setMeetingForm({
                     title: meeting.title,
-                    date: startDate.toISOString().split('T')[0],
+                    date: formatLocalDateString(startDate),
                     time: startDate.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: false }),
                     duration: '30',
                     description: meeting.description || '',
@@ -827,7 +826,7 @@ export default function LeadDetailPage({ params }: PageProps) {
           {/* Ventas Module */}
           <div className="bg-white border-[0.5px] border-slate-200 rounded-[12px] p-4 shadow-none">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100 mb-3">
-                <h4 className="text-[13px] font-bold text-slate-400 uppercase tracking-wider">Ventas</h4>
+                <h4 className="text-xs font-bold text-slate-550 font-headline">Ventas</h4>
                 {sales.length > 0 && (
                   <span className="bg-slate-100 text-slate-650 text-[10px] font-bold px-1.5 py-0.5 rounded-full border border-slate-200/50">
                     {sales.length}
@@ -843,10 +842,24 @@ export default function LeadDetailPage({ params }: PageProps) {
               ) : (
                 <div className="space-y-2 mb-3 max-h-[200px] overflow-y-auto pr-1">
                   {sales.map(sale => (
-                    <div key={sale.id} className="p-2.5 bg-slate-50 border-[0.5px] border-slate-200 rounded-lg text-[14px] flex flex-col gap-0.5 relative group">
-                      <span className="font-bold text-slate-700 truncate pr-4">{sale.custom_name || sale.package}</span>
-                      <span className="text-[12px] text-slate-500 font-semibold">${sale.total_amount.toLocaleString()}</span>
-                      <button 
+                    <div key={sale.id} className="p-2.5 bg-slate-50 border-[0.5px] border-slate-200 rounded-lg text-[14px] flex flex-col gap-0.5 relative group hover:border-slate-300 transition-colors">
+                      <button
+                        onClick={() => {
+                          setEditingSale(sale)
+                          setShowSaleModal(true)
+                        }}
+                        className="text-left cursor-pointer bg-transparent border-none p-0 pr-10 w-full"
+                      >
+                        <span className="font-bold text-slate-700 truncate block hover:text-primary transition-colors">{sale.custom_name || sale.package}</span>
+                        <span className="text-[12px] font-semibold text-slate-500">${sale.total_amount.toLocaleString()}</span>
+                        {sale.pending_amount > 0 && (
+                          <span className="text-[11px] font-bold text-amber-600 block">Pendiente: ${sale.pending_amount.toLocaleString()}</span>
+                        )}
+                        {sale.pending_amount === 0 && (
+                          <span className="text-[11px] font-bold text-emerald-600 block">Pagado completo</span>
+                        )}
+                      </button>
+                      <button
                         onClick={() => setConfirmingDeleteSale(sale)}
                         className="absolute right-2 top-2.5 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer border-none bg-transparent"
                       >
@@ -857,6 +870,14 @@ export default function LeadDetailPage({ params }: PageProps) {
                 </div>
               )}
 
+              {sales.length > 0 && (
+                <button
+                  onClick={() => setShowSalesSummaryModal(true)}
+                  className="w-full py-2 flex items-center justify-center gap-1.5 text-[12px] font-bold uppercase text-slate-400 hover:text-slate-600 transition-colors cursor-pointer bg-transparent border-none outline-none mb-1"
+                >
+                  Ver resumen de pagos
+                </button>
+              )}
               <button
                 onClick={() => {
                   setEditingSale(null)
@@ -871,39 +892,102 @@ export default function LeadDetailPage({ params }: PageProps) {
             {/* Notas Module */}
             <div className="bg-white border-[0.5px] border-slate-200 rounded-[12px] p-4 shadow-none">
               <div className="flex items-center justify-between pb-2 border-b border-slate-100 mb-3">
-                <h4 className="text-[13px] font-bold text-slate-400 uppercase tracking-wider">NOTAS</h4>
+                <h4 className="text-xs font-bold text-slate-500 font-headline">Notas</h4>
+                {notes.length > 0 && (
+                  <span className="bg-slate-100 text-slate-650 text-[10px] font-bold px-1.5 py-0.5 rounded-full border border-slate-200/50">
+                    {notes.length}
+                  </span>
+                )}
               </div>
-              <div className="py-6 flex flex-col items-center justify-center text-center">
-                <FileText size={20} className="text-slate-350 mb-1.5" />
-                <p className="text-[14px] font-medium text-slate-400">Sin notas guardadas aún</p>
-              </div>
+              
+              {notes.length === 0 ? (
+                <div className="py-6 flex flex-col items-center justify-center text-center">
+                  <FileText size={20} className="text-slate-350 mb-1.5" />
+                  <p className="text-[14px] font-medium text-slate-400">Sin notas guardadas aún</p>
+                </div>
+              ) : (
+                <div className="space-y-2 mb-3 max-h-[220px] overflow-y-auto pr-1">
+                  {notes.slice(0, 3).map(note => {
+                    const plainText = note.content ? note.content.replace(/<[^>]*>/g, '') : ''
+                    return (
+                      <div 
+                        key={note.id} 
+                        onClick={() => {
+                          setActiveTab('notes')
+                        }}
+                        className="p-2.5 bg-slate-50 border-[0.5px] border-slate-200 rounded-lg text-[13px] hover:border-slate-300 transition-colors cursor-pointer"
+                      >
+                        <p className="text-slate-700 font-medium line-clamp-2 leading-relaxed">{plainText}</p>
+                        <span className="text-[10px] font-semibold text-slate-450 mt-1 block">
+                          {new Date(note.created_at).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+              
               <button
                 onClick={() => {
                   setActiveTab('notes')
                   setShowAddNoteInline(true)
                 }}
-                className="w-full py-2.5 flex items-center justify-center gap-1.5 text-[14px] font-bold uppercase transition-colors cursor-pointer bg-transparent border-none outline-none"
-                style={{ color: '#006C49' }}
+                className="w-full py-2.5 flex items-center justify-center gap-1.5 text-[14px] font-bold uppercase text-primary hover:text-primary/80 transition-colors cursor-pointer bg-transparent border-none outline-none"
               >
-                + AGREGAR NOTA
+                ＋ Agregar nota
               </button>
             </div>
 
             {/* Tareas Module */}
             <div className="bg-white border-[0.5px] border-slate-200 rounded-[12px] p-4 shadow-none">
               <div className="flex items-center justify-between pb-2 border-b border-slate-100 mb-3">
-                <h4 className="text-[13px] font-bold text-slate-400 uppercase tracking-wider">TAREAS</h4>
+                <h4 className="text-xs font-bold text-slate-500 font-headline">Tareas</h4>
+                {reminders.filter(r => !r.is_completed).length > 0 && (
+                  <span className="bg-slate-100 text-slate-650 text-[10px] font-bold px-1.5 py-0.5 rounded-full border border-slate-200/50">
+                    {reminders.filter(r => !r.is_completed).length}
+                  </span>
+                )}
               </div>
-              <div className="py-6 flex flex-col items-center justify-center text-center">
-                <CheckSquare size={20} className="text-slate-350 mb-1.5" />
-                <p className="text-[14px] font-medium text-slate-400">Sin tareas creadas</p>
-              </div>
+              
+              {reminders.length === 0 ? (
+                <div className="py-6 flex flex-col items-center justify-center text-center">
+                  <CheckSquare size={20} className="text-slate-350 mb-1.5" />
+                  <p className="text-[14px] font-medium text-slate-400">Sin tareas creadas</p>
+                </div>
+              ) : (
+                <div className="space-y-2 mb-3 max-h-[220px] overflow-y-auto pr-1">
+                  {reminders.filter(r => !r.is_completed).slice(0, 3).map(rem => (
+                    <div 
+                      key={rem.id} 
+                      className="p-2.5 bg-slate-50 border-[0.5px] border-slate-200 rounded-lg text-[13px] flex items-start gap-2 group hover:border-slate-300 transition-colors"
+                    >
+                      <button 
+                        onClick={() => toggleReminderMutation.mutate(rem)}
+                        className="w-3.5 h-3.5 mt-0.5 rounded-full border flex items-center justify-center shrink-0 bg-white border-slate-300 hover:border-primary cursor-pointer transition-colors"
+                      >
+                        {rem.is_completed && <Check size={8} strokeWidth={3} />}
+                      </button>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-slate-700 font-medium truncate">{rem.note || 'Tarea'}</p>
+                        <span className="text-[10px] font-semibold text-slate-450 block mt-0.5">
+                          {new Date(rem.date + 'T00:00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                  {reminders.filter(r => !r.is_completed).length === 0 && (
+                    <div className="py-4 flex flex-col items-center justify-center text-center">
+                      <p className="text-[12px] font-medium text-slate-450">¡Todas las tareas al día!</p>
+                    </div>
+                  )}
+                </div>
+              )}
+              
               <button
                 onClick={() => setShowReminderModal(true)}
-                className="w-full py-2.5 flex items-center justify-center gap-1.5 text-[14px] font-bold uppercase transition-colors cursor-pointer bg-transparent border-none outline-none"
-                style={{ color: '#006C49' }}
+                className="w-full py-2.5 flex items-center justify-center gap-1.5 text-[14px] font-bold uppercase text-primary hover:text-primary/80 transition-colors cursor-pointer bg-transparent border-none outline-none"
               >
-                + CREAR TAREA
+                ＋ Crear tarea
               </button>
             </div>
 
@@ -1022,11 +1106,11 @@ export default function LeadDetailPage({ params }: PageProps) {
           onCancelMeeting={(meeting) => cancelMeetingMutation.mutate(meeting)}
           onOpenMeetingModal={(meeting) => {
             if (meeting) {
-              const startDate = new Date(meeting.start_time)
+              const startDate = parseDate(meeting.start_time)
               setEditingMeeting(meeting)
               setMeetingForm({
                 title: meeting.title,
-                date: startDate.toISOString().split('T')[0],
+                date: formatLocalDateString(startDate),
                 time: startDate.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: false }),
                 duration: '30',
                 description: meeting.description || '',

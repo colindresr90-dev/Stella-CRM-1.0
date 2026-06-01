@@ -1,8 +1,6 @@
-import { ImapFlow } from "imapflow"
-import nodemailer from "nodemailer"
-import MailComposer from "nodemailer/lib/mail-composer"
 import { NextResponse } from "next/server"
 import { requireAdminOrPermission } from "@/lib/apiAuth"
+import { enqueueEmail } from "@/lib/emailQueue"
 
 export async function POST(request: Request) {
   try {
@@ -12,7 +10,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
-    const { to, subject, htmlText, cc, bcc, attachments } = body
+    const { to, subject, htmlText, cc, bcc, attachments, lead_id } = body
 
     if (!to || !subject || !htmlText) {
       return NextResponse.json(
@@ -21,148 +19,42 @@ export async function POST(request: Request) {
       )
     }
 
-    const emailPassword = process.env.EMAIL_PASSWORD
-    if (!emailPassword) {
+    if (!process.env.EMAIL_PASSWORD) {
       return NextResponse.json(
         { error: "Servidor no configurado: Falta EMAIL_PASSWORD" },
         { status: 500 }
       )
     }
 
-    // 1. Send via SMTP
-    const transporter = nodemailer.createTransport({
-      host: 'smtp.titan.email',
-      port: 465,
-      secure: true,
-      auth: {
-        user: 'info@taskmasters.site',
-        pass: emailPassword
-      }
-    })
+    const t0 = performance.now()
 
-    interface AttachmentType {
-      filename: string;
-      content: string;
-      encoding?: string;
-      cid?: string;
-    }
-
-    const processedAttachments: AttachmentType[] = []
-
-    // Process inline base64 images in htmlText (like signature logos)
-    let processedHtml = htmlText
-    let imageIndex = 1
-    processedHtml = htmlText.replace(/src=["']data:image\/([a-zA-Z+.-]+);base64,([^"']+)["']/g, (match: string, ext: string, base64Content: string) => {
-      const cid = `inline_img_${Date.now()}_${imageIndex++}`
-      processedAttachments.push({
-        filename: `signature_logo_${imageIndex - 1}.${ext}`,
-        content: base64Content,
-        encoding: 'base64',
-        cid: cid
-      })
-      return `src="cid:${cid}"`
-    })
-
-    const mailOptions: {
-      from: string;
-      to: string;
-      subject: string;
-      html: string;
-      cc?: string;
-      bcc?: string;
-      attachments?: AttachmentType[];
-    } = {
-      from: '"Taskmasters CRM" <info@taskmasters.site>',
+    // Enqueue the job (~50ms DB insert) instead of blocking on SMTP (~2-5s)
+    const jobId = await enqueueEmail({
+      created_by: authResult.user!.id,
+      lead_id: lead_id ?? undefined,
       to,
       subject,
-      html: processedHtml
-    }
+      html_text: htmlText,
+      cc: cc || undefined,
+      bcc: bcc || undefined,
+      attachments: attachments?.length ? attachments : undefined,
+    })
 
-    if (cc) {
-      mailOptions.cc = cc
-    }
-    if (bcc) {
-      mailOptions.bcc = bcc
-    }
-    if (attachments && Array.isArray(attachments) && attachments.length > 0) {
-      processedAttachments.push(...(attachments as AttachmentType[]).map((att) => ({
-        filename: att.filename,
-        content: att.content,
-        encoding: 'base64'
-      })))
-    }
 
-    if (processedAttachments.length > 0) {
-      mailOptions.attachments = processedAttachments
-    }
+    // Kick the worker in the background — don't await, response is already ready
+    const workerUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/api/jobs/email-worker`
+    fetch(workerUrl, {
+      method: "POST",
+      headers: { "x-worker-secret": process.env.WORKER_SECRET ?? "internal" },
+    }).catch((e) => console.error("[email-queue] Worker kick failed:", e))
 
-    console.log(`[SMTP] Sending email to ${to}...`)
-    const info = await transporter.sendMail(mailOptions)
-    console.log(`[SMTP] Sent successfully. MessageId: ${info.messageId}`)
+    const ms = (performance.now() - t0).toFixed(1)
+    console.log(`[email-queue] Enqueued job ${jobId} in ${ms}ms for ${to}`)
 
-    // 2. Compile message source & append to Sent folder via IMAP
-    try {
-      console.log(`[IMAP] Compiling raw email for Sent folder...`)
-      const mailComposer = new MailComposer(mailOptions)
-      const rawSource = await mailComposer.compile().build()
-
-      const client = new ImapFlow({
-        host: 'imap.titan.email',
-        port: 993,
-        secure: true,
-        auth: {
-          user: 'info@taskmasters.site',
-          pass: emailPassword
-        },
-        logger: false
-      })
-
-      console.log(`[IMAP] Appending sent email to Sent folder...`)
-      await client.connect()
-      const lock = await client.getMailboxLock('Sent')
-      try {
-        await client.append('Sent', rawSource, ['\\Seen'])
-        console.log(`[IMAP] Appended successfully.`)
-      } finally {
-        lock.release()
-      }
-      await client.logout()
-    } catch (imapErr) {
-      const errMsg = imapErr instanceof Error ? imapErr.message : "Error desconocido"
-      console.error(`[IMAP] Failed to archive sent email in Sent folder:`, errMsg)
-      // Do not fail the whole response if SMTP succeeded
-    }
-
-    // 3. Emit a new-email event via WebSocket
-    const globalWithIo = global as unknown as { io?: { emit: (event: string, data: Record<string, unknown>) => void } }
-    if (globalWithIo.io) {
-      console.log("[SMTP] Emitting new-email event via socket.io for sent email")
-      const formatAddresses = (addrStr?: string) => {
-        if (!addrStr) return []
-        return addrStr.split(',').map((email) => ({ name: "", address: email.trim() }))
-      }
-      
-      globalWithIo.io.emit('new-email', {
-        id: info.messageId || Date.now().toString(),
-        from: { name: "Taskmasters CRM", address: "info@taskmasters.site" },
-        to: formatAddresses(to),
-        cc: formatAddresses(cc),
-        bcc: formatAddresses(bcc),
-        subject,
-        preview: htmlText.replace(/<[^>]*>/g, '').slice(0, 100) + "...",
-        body: htmlText,
-        date: new Date().toISOString(),
-        folder: 'Sent'
-      })
-    }
-
-    return NextResponse.json({ success: true, messageId: info.messageId })
+    return NextResponse.json({ success: true, queued: true, jobId }, { status: 202 })
   } catch (error) {
     console.error("Critical error in POST /api/emails/send:", error)
-    const errorMsg = error instanceof Error ? error.message : "Error al enviar el correo"
-    return NextResponse.json(
-      { error: errorMsg },
-      { status: 500 }
-    )
+    const errorMsg = error instanceof Error ? error.message : "Error al encolar el correo"
+    return NextResponse.json({ error: errorMsg }, { status: 500 })
   }
 }

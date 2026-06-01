@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
+import { unstable_cache, revalidateTag } from "next/cache"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -29,30 +30,43 @@ async function getUserFromHeader(request: Request) {
   return user
 }
 
+const getOrgSettings = unstable_cache(
+  async () => {
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: { persistSession: false, autoRefreshToken: false }
+    })
+    const { data, error } = await supabaseAdmin
+      .from("organization_settings")
+      .select("*")
+      .single()
+    if (error) throw new Error(error.message)
+    return data
+  },
+  ["org_settings"],
+  { tags: ["org_settings"], revalidate: 3600 }
+)
+
 export async function GET(request: Request) {
+  const t0 = performance.now()
   try {
     const user = await getUserFromHeader(request)
     if (!user) {
       return NextResponse.json({ error: "No autorizado" }, { status: 401 })
     }
 
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false
-      }
+    // unstable_cache stores the result; first call hits Supabase, subsequent calls are in-process
+    const cacheEntryExisted = true // optimistic — Next.js doesn't expose hit/miss, so we log timing instead
+    const data = await getOrgSettings()
+    const ms = (performance.now() - t0).toFixed(1)
+    console.log(`[org_settings] GET ${ms}ms`)
+
+    return NextResponse.json(data, {
+      headers: {
+        "X-Response-Time": `${ms}ms`,
+        // <5ms = cache hit (in-process), >5ms = cache miss (Supabase roundtrip)
+        "X-Cache": Number(ms) < 5 ? "HIT" : "MISS",
+      },
     })
-
-    const { data, error } = await supabaseAdmin
-      .from("organization_settings")
-      .select("*")
-      .single()
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 })
-    }
-
-    return NextResponse.json(data)
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
@@ -119,6 +133,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 400 })
     }
 
+    revalidateTag("org_settings", "max")
     return NextResponse.json(data)
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })

@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useState, useRef, useMemo } from "react"
+import { useEffect, useState, useRef, useMemo, useCallback } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { supabase } from "@/lib/supabaseClient"
 import { 
   Plus, 
@@ -27,6 +28,9 @@ import {
 } from "lucide-react"
 import { createNotification } from "@/lib/notifications"
 import { getUserRole } from "@/lib/authHelper"
+import { useQueryClient } from "@tanstack/react-query"
+import { useProfiles } from "@/hooks/useProfiles"
+import { useOrgSettings } from "@/hooks/useOrgSettings"
 import { MonthSelect, generateMonths, monthRange } from "../_components/shared"
 
 type Sale = {
@@ -61,10 +65,11 @@ type Profile = {
 }
 
 export default function SalesPage() {
-  const [loading, setLoading] = useState(true)
   const [sales, setSales] = useState<Sale[]>([])
   const [leads, setLeads] = useState<Lead[]>([])
-  const [profiles, setProfiles] = useState<Profile[]>([])
+  const queryClient = useQueryClient()
+  const { data: profiles = [] } = useProfiles()
+  const { data: orgSettings } = useOrgSettings()
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [userRole, setUserRole] = useState<string | null>(null)
   const [permissions, setPermissions] = useState<string[]>([])
@@ -73,7 +78,6 @@ export default function SalesPage() {
   // Monthly goal and month selector states
   const monthsList = useMemo(() => generateMonths(), [])
   const [selectedMonth, setSelectedMonth] = useState<string>(monthsList[0]?.value || '')
-  const [orgSettings, setOrgSettings] = useState<any>(null)
   const [showGoalEditModal, setShowGoalEditModal] = useState(false)
   const [newGoalVal, setNewGoalVal] = useState('')
   const [savingGoalState, setSavingGoalState] = useState(false)
@@ -155,25 +159,16 @@ export default function SalesPage() {
     lossDistribution: {} as Record<string, number>
   })
 
+  // Auth init — runs once, sets user/role, does NOT trigger a fetch directly
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       setCurrentUser(user)
-      
       const { role, permissions } = await getUserRole()
       setUserRole(role)
       setPermissions(permissions)
-      
-      // If Vendedor, force showOnlyMine to true
-      const isUserAdmin = role === 'admin'
-      const initialShowOnlyMine = !isUserAdmin
-      if (initialShowOnlyMine) {
-        setShowOnlyMine(true)
-      }
-      
-      fetchData(user, role, permissions, initialShowOnlyMine, monthsList[0]?.value || '')
+      if (role !== 'admin') setShowOnlyMine(true)
     }
-    
     init()
   }, [])
 
@@ -184,12 +179,103 @@ export default function SalesPage() {
     }
   }, [activeTab, userRole])
 
-  // Refetch when toggle or selected month changes
-  useEffect(() => {
-    if (currentUser && userRole !== null) {
-      fetchData(currentUser, userRole, permissions, showOnlyMine, selectedMonth)
+  // ── Cached raw DB query ────────────────────────────────────────────────────
+  // Key only on month: filters (user, payment status, date range) are applied
+  // client-side so the cache is shared across filter changes within the same month.
+  const { data: salesRawData, isLoading: isSalesLoading } = useQuery({
+    queryKey: ['sales_raw', selectedMonth],
+    enabled: !!currentUser && !!userRole,
+    staleTime: 5 * 60 * 1000, // 5-min cache — recomputes 4 DB queries into 1 cache entry
+    queryFn: async () => {
+      const range = monthRange(selectedMonth)
+      const threeDaysAgo = new Date()
+      threeDaysAgo.setDate(threeDaysAgo.getDate() - 3)
+
+      const [salesResult, leadsResult, activitiesResult, lossResult] = await Promise.all([
+        supabase
+          .from('sales')
+          .select(`
+            id, lead_id, package, custom_name, custom_description, total_amount,
+            deposit_amount, pending_amount, status, created_at, assigned_to,
+            lead:leads ( business_name, contact_name, status, assigned_to )
+          `)
+          .gte('created_at', range.gte)
+          .lt('created_at', range.lt)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('leads')
+          .select('id, business_name, contact_name, status, sale_price, reminder_date, created_at, assigned_to')
+          .gte('created_at', range.gte)
+          .lt('created_at', range.lt),
+        supabase
+          .from('activities')
+          .select('lead_id')
+          .gte('created_at', threeDaysAgo.toISOString()),
+        supabase
+          .from('activities')
+          .select('description')
+          .eq('type', 'status_change')
+          .ilike('description', '%Motivo: %')
+          .order('created_at', { ascending: false })
+          .limit(50)
+      ])
+
+      if (salesResult.error) throw salesResult.error
+      if (leadsResult.error) throw leadsResult.error
+
+      const activeLeadIds = new Set((activitiesResult.data || []).map((a: any) => a.lead_id))
+      const lossDist: Record<string, number> = {}
+      ;(lossResult.data || []).forEach((a: any) => {
+        const match = a.description?.match(/Motivo: (.*)/)
+        if (match?.[1]) {
+          const reason = match[1].trim()
+          lossDist[reason] = (lossDist[reason] || 0) + 1
+        }
+      })
+
+      return {
+        allSales: (salesResult.data || []) as unknown as Sale[],
+        allLeads: (leadsResult.data || []) as Lead[],
+        activeLeadIds,
+        lossDist,
+      }
     }
-  }, [showOnlyMine, selectedMonth])
+  })
+
+  // <5ms = served from in-process cache; >5ms = fresh DB query
+  const loading = isSalesLoading && !salesRawData
+
+  // ── Apply client-side filters + derive state whenever raw data or filters change ──
+  useEffect(() => {
+    if (!salesRawData || !currentUser || !userRole) return
+
+    const { allSales, allLeads, activeLeadIds, lossDist } = salesRawData
+
+    let filteredSales = [...allSales]
+    let filteredLeads = [...allLeads]
+
+    const strictOnlyMine = showOnlyMine || userRole !== 'admin'
+    if (strictOnlyMine) {
+      filteredSales = filteredSales.filter(s => (s.lead?.assigned_to || s.assigned_to) === currentUser.id)
+      filteredLeads = filteredLeads.filter(l => l.assigned_to === currentUser.id)
+    }
+    if (filterAssignedUser !== 'all') {
+      filteredSales = filteredSales.filter(s => (s.lead?.assigned_to || s.assigned_to) === filterAssignedUser)
+    }
+    if (filterPaymentStatus !== 'all') {
+      filteredSales = filteredSales.filter(s => s.status === filterPaymentStatus)
+    }
+    if (filterDateRange.from) {
+      filteredSales = filteredSales.filter(s => s.created_at >= filterDateRange.from)
+    }
+    if (filterDateRange.to) {
+      filteredSales = filteredSales.filter(s => s.created_at <= `${filterDateRange.to}T23:59:59`)
+    }
+
+    setSales(filteredSales)
+    setLeads(filteredLeads)
+    calculateAdvancedMetrics(filteredSales, filteredLeads, activeLeadIds, lossDist, orgSettings, selectedMonth)
+  }, [salesRawData, showOnlyMine, filterAssignedUser, filterPaymentStatus, filterDateRange, currentUser, userRole, orgSettings, selectedMonth])
 
   // Fetch activities for selected sale detail
   useEffect(() => {
@@ -205,9 +291,10 @@ export default function SalesPage() {
     try {
       const { data, error } = await supabase
         .from('activities')
-        .select('*')
+        .select('id, type, action, description, created_at')
         .eq('lead_id', leadId)
         .order('created_at', { ascending: false })
+        .limit(50)
       
       if (!error) {
         setSaleActivities(data || [])
@@ -216,145 +303,6 @@ export default function SalesPage() {
       console.error("Error fetching sale activities:", err)
     } finally {
       setLoadingSaleActivities(false)
-    }
-  }
-
-  const fetchData = async (
-    user = currentUser, 
-    role = userRole, 
-    currentPerms = permissions, 
-    onlyMine = showOnlyMine, 
-    month = selectedMonth
-  ) => {
-    setLoading(true)
-    try {
-      // 1. Fetch organization settings via API Route
-      let orgDataToUse = orgSettings
-      const { data: { session } } = await supabase.auth.getSession()
-      if (session) {
-        try {
-          const orgResponse = await fetch('/api/organization-settings', {
-            headers: {
-              'Authorization': `Bearer ${session.access_token}`
-            }
-          })
-          if (orgResponse.ok) {
-            const orgData = await orgResponse.json()
-            setOrgSettings(orgData)
-            orgDataToUse = orgData
-          } else {
-            console.error("Failed to load organization settings via API:", orgResponse.statusText)
-          }
-        } catch (orgErr) {
-          console.error("Error loading organization settings via API:", orgErr)
-        }
-      }
-
-      // 2. Fetch Profiles (Excluding CEOs)
-      const { data: profilesData } = await supabase.from('profiles').select('id, name')
-      if (profilesData) {
-        const filteredProfiles = profilesData.filter(p => 
-          !p.name.toLowerCase().includes('rodrigo') && 
-          !p.name.toLowerCase().includes('gerardo')
-        );
-        setProfiles(filteredProfiles)
-      }
-      
-      // Calculate month range for queries
-      const range = monthRange(month)
-
-      // 3. Fetch Sales (with filters applied at query level where possible)
-      let salesQuery = supabase
-        .from('sales')
-        .select(`
-          *,
-          lead:leads (
-            business_name,
-            contact_name,
-            status,
-            assigned_to
-          )
-        `)
-        .gte('created_at', range.gte)
-        .lt('created_at', range.lt)
-        .order('created_at', { ascending: false })
-
-      if (filterPaymentStatus !== 'all') {
-        salesQuery = salesQuery.eq('status', filterPaymentStatus)
-      }
-      if (filterDateRange.from) {
-        salesQuery = salesQuery.gte('created_at', filterDateRange.from)
-      }
-      if (filterDateRange.to) {
-        salesQuery = salesQuery.lte('created_at', `${filterDateRange.to}T23:59:59`)
-      }
-      
-      const { data: allSales, error: salesError } = await salesQuery
-      if (salesError) throw salesError
-
-      // 4. Fetch Leads
-      let leadsQuery = supabase
-        .from('leads')
-        .select('id, business_name, contact_name, status, sale_price, reminder_date, created_at, assigned_to')
-        .gte('created_at', range.gte)
-        .lt('created_at', range.lt)
-      
-      const { data: allLeads, error: leadsError } = await leadsQuery
-      if (leadsError) throw leadsError
-
-      // Filter data by Role/Toggle / Assigned filters
-      let filteredSales = allSales as any[] || []
-      let filteredLeads = allLeads || []
-
-      // If user is not admin, force showOnlyMine
-      const strictOnlyMine = onlyMine || (role !== 'admin')
-
-      if (strictOnlyMine && user) {
-        filteredSales = filteredSales.filter(s => (s.lead?.assigned_to || s.assigned_to) === user.id)
-        filteredLeads = filteredLeads.filter(l => l.assigned_to === user.id)
-      }
-
-      if (filterAssignedUser !== 'all') {
-        filteredSales = filteredSales.filter(s => (s.lead?.assigned_to || s.assigned_to) === filterAssignedUser)
-      }
-
-      // 5. Fetch Activities (last 3 days for 'sin seguimiento' calculation)
-      const threeDaysAgo = new Date()
-      threeDaysAgo.setDate(threeDaysAgo.getDate() - 3)
-      const { data: recentActivities } = await supabase
-        .from('activities')
-        .select('lead_id')
-        .gte('created_at', threeDaysAgo.toISOString())
-      
-      const activeLeadIds = new Set(recentActivities?.map(a => a.lead_id) || [])
-
-      // 6. Fetch Loss Reasons (last 50 status changes to 'perdido')
-      const { data: lossActivities } = await supabase
-        .from('activities')
-        .select('description')
-        .eq('type', 'status_change')
-        .ilike('description', '%Motivo: %')
-        .order('created_at', { ascending: false })
-        .limit(50)
-
-      const lossDist: Record<string, number> = {}
-      lossActivities?.forEach(a => {
-        const match = a.description.match(/Motivo: (.*)/)
-        if (match && match[1]) {
-          const reason = match[1].trim()
-          lossDist[reason] = (lossDist[reason] || 0) + 1
-        }
-      })
-
-      setSales(filteredSales)
-      setLeads(filteredLeads)
-
-      calculateAdvancedMetrics(filteredSales, filteredLeads, activeLeadIds, lossDist, orgDataToUse, month)
-
-    } catch (error) {
-      console.error("Error fetching sales data:", error)
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -384,11 +332,12 @@ export default function SalesPage() {
     const conversionRate = totalLeads > 0 ? (ventasCount / totalLeads) * 100 : 0
 
     // Average Velocity (Days from created to closed for won leads)
+    const saleByLeadId = new Map(salesArr.map(s => [s.lead_id, s]))
     let totalDays = 0
     let leadsWithDates = 0
     wonLeads.forEach(l => {
       const created = new Date(l.created_at)
-      const relatedSale = salesArr.find(s => s.lead_id === l.id)
+      const relatedSale = saleByLeadId.get(l.id)
       const closedDate = relatedSale ? new Date(relatedSale.created_at) : new Date()
       const diffTime = Math.abs(closedDate.getTime() - created.getTime())
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
@@ -506,7 +455,7 @@ export default function SalesPage() {
       .eq('id', leadId)
 
     if (!error) {
-      await fetchData()
+      queryClient.invalidateQueries({ queryKey: ['sales_raw', selectedMonth] })
       
       await supabase.from('activities').insert({
         lead_id: leadId,
@@ -589,7 +538,7 @@ export default function SalesPage() {
       }
 
       // Update UI
-      await fetchData()
+      queryClient.invalidateQueries({ queryKey: ['sales_raw', selectedMonth] })
       setShowSaleModal(false)
       setSelectedLead(null)
       resetSaleForm()
@@ -666,7 +615,7 @@ export default function SalesPage() {
       } : null)
 
       // Refresh list
-      await fetchData()
+      queryClient.invalidateQueries({ queryKey: ['sales_raw', selectedMonth] })
     } catch (error: any) {
       alert("Error al registrar el abono: " + error.message)
     } finally {
@@ -705,7 +654,7 @@ export default function SalesPage() {
       if (activityError) console.warn("Activity insertion failed:", activityError.message)
 
       // 3. Refresh lists
-      await fetchData()
+      queryClient.invalidateQueries({ queryKey: ['sales_raw', selectedMonth] })
       setShowLossModal(false)
       setSelectedLeadForLoss(null)
       setLossReason('')
@@ -1599,7 +1548,7 @@ export default function SalesPage() {
               </button>
 
               <button 
-                onClick={() => { fetchData(); setShowFiltersModal(false); }}
+                onClick={() => { queryClient.invalidateQueries({ queryKey: ['sales_raw', selectedMonth] }); setShowFiltersModal(false); }}
                 className="w-full py-3 bg-primary text-on-primary rounded-2xl font-bold text-sm shadow-lg shadow-primary/20 hover:shadow-primary/40 transition-all active:scale-95"
               >
                 Aplicar Filtros
@@ -1884,12 +1833,10 @@ export default function SalesPage() {
                         throw new Error(errData.error || "Error al actualizar la meta en el servidor")
                       }
                       
-                      // Update local states
-                      setOrgSettings((prev: any) => ({ ...prev, logo_url: JSON.stringify(updatedMap) }))
+                      queryClient.invalidateQueries({ queryKey: ['org_settings'] })
                       setShowGoalEditModal(false)
                       setNewGoalVal('')
-                      // Trigger data fetch to update metrics calculation
-                      await fetchData(currentUser, userRole, permissions, showOnlyMine, selectedMonth)
+                      queryClient.invalidateQueries({ queryKey: ['sales_raw', selectedMonth] })
                     } catch (e: any) {
                       alert("Error al guardar la meta: " + e.message)
                     } finally {

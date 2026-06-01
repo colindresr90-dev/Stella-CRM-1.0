@@ -13,7 +13,8 @@ export function LeadMeetings({
   userRole,
   permissions,
   onEditMeetingClick,
-  onCancelMeetingClick
+  onCancelMeetingClick,
+  onAddMeetingClick
 }: {
   lead: Lead
   user: any
@@ -21,7 +22,26 @@ export function LeadMeetings({
   permissions: string[]
   onEditMeetingClick: (meeting: Meeting) => void
   onCancelMeetingClick: (meeting: Meeting) => void
+  onAddMeetingClick?: () => void
 }) {
+  const [mounted, setMounted] = useState(false)
+  React.useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  const parseDate = (str: string | null | undefined) => {
+    if (!str) return new Date()
+    const normalized = str.replace(' ', 'T')
+    if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+      return new Date(normalized)
+    }
+    const hasTimezone = normalized.endsWith('Z') || 
+                        normalized.includes('+') || 
+                        (normalized.includes('T') && normalized.indexOf('-', normalized.indexOf('T')) !== -1)
+    
+    return new Date(hasTimezone ? normalized : `${normalized}Z`)
+  }
+
   // Query meetings using TanStack Query
   const { data: meetings = [], isLoading } = useQuery({
     queryKey: ['meetings', lead.id],
@@ -63,7 +83,15 @@ export function LeadMeetings({
               <h3 className="text-lg font-bold text-slate-800">Reuniones</h3>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            {onAddMeetingClick && (
+              <button
+                onClick={onAddMeetingClick}
+                className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-[10px] font-black uppercase tracking-widest rounded-lg transition-colors cursor-pointer border-none"
+              >
+                ＋ Nueva reunión
+              </button>
+            )}
             <span className="bg-purple-50 text-purple-700 text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg border border-purple-100">
               Historial de Reuniones
             </span>
@@ -82,19 +110,19 @@ export function LeadMeetings({
           ) : (
             <div className="space-y-4">
               {meetings.map((meeting) => {
-                const isUpcoming = new Date(meeting.start_time) > new Date()
+                const meetingDate = parseDate(meeting.start_time)
+                const isUpcoming = meetingDate > new Date()
                 const expanded = !!expandedMeetingIds[meeting.id]
                 
-                const meetingDate = new Date(meeting.start_time)
-                const formattedDate = meetingDate.toLocaleDateString('es-ES', { 
+                const formattedDate = mounted ? meetingDate.toLocaleDateString('es-ES', { 
                   day: 'numeric', 
                   month: 'short', 
                   year: 'numeric' 
-                })
-                const formattedTime = meetingDate.toLocaleTimeString('es-ES', { 
+                }) : '...'
+                const formattedTime = mounted ? meetingDate.toLocaleTimeString('es-ES', { 
                   hour: '2-digit', 
                   minute: '2-digit' 
-                })
+                }) : '...'
 
                 return (
                   <div 

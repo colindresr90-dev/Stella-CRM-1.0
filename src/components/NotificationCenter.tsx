@@ -91,7 +91,9 @@ export const NotificationCenter = () => {
         `)
         .eq('leads.assigned_to', currentUser.id)
         .eq('is_completed', false)
-        .lte('date', today);
+        .lte('date', today)
+        .order('date', { ascending: true })
+        .limit(50);
 
       if (remindersDue) {
         for (const rem of remindersDue) {

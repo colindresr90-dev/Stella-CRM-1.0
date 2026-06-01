@@ -12,6 +12,19 @@ import { insertActivity, PACKAGES, statusOptions, getStatusStyle } from "./utils
 import { Lead, Sale, Meeting, Reminder, FileRecord, Activity } from "./types"
 import { useQueryClient, useMutation } from "@tanstack/react-query"
 
+const parseDate = (str: string | null | undefined) => {
+  if (!str) return new Date()
+  const normalized = str.replace(' ', 'T')
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    return new Date(normalized)
+  }
+  const hasTimezone = normalized.endsWith('Z') || 
+                      normalized.includes('+') || 
+                      (normalized.includes('T') && normalized.indexOf('-', normalized.indexOf('T')) !== -1)
+  
+  return new Date(hasTimezone ? normalized : `${normalized}Z`)
+}
+
 // ─── 1. DELETE CONFIRM MODAL ───
 export function DeleteConfirmModal({
   title,
@@ -121,14 +134,6 @@ export function SaleModal({
 
         await insertActivity(lead.id, user.id, 'update', `Venta actualizada: ${salePackage}${isOther ? ` (${saleCustomName})` : ''}. Nuevo Total: $${total.toLocaleString()}`)
 
-        await createNotification({
-          user_id: user.id,
-          title: 'Venta Actualizada',
-          message: `Actualizaste la venta: ${salePackage}`,
-          type: 'payment',
-          related_id: lead.id
-        })
-        
         if (lead.assigned_to && lead.assigned_to !== user.id) {
           await createNotification({
             user_id: lead.assigned_to,
@@ -178,14 +183,6 @@ export function SaleModal({
             related_id: lead.id
           })
         }
-
-        await createNotification({
-          user_id: user.id,
-          title: 'Nueva Venta',
-          message: `Has registrado una venta: ${salePackage}`,
-          type: 'sale',
-          related_id: lead.id
-        })
 
         if (isFullPayment) {
           await insertActivity(lead.id, user.id, 'sale', `Venta registrada (Pago Completo): ${salePackage}${isOther ? ` (${saleCustomName})` : ''} por $${total.toLocaleString()}`)
@@ -418,14 +415,6 @@ export function SalesSummaryModal({
 
       if (error) throw error
       
-      await createNotification({
-        user_id: user.id,
-        title: 'Pago Liquidado',
-        message: `Has confirmado el pago final de: ${sale.custom_name || sale.package}`,
-        type: 'payment',
-        related_id: lead.id
-      })
-      
       if (lead.assigned_to && lead.assigned_to !== user?.id) {
         await createNotification({
           user_id: lead.assigned_to,
@@ -513,7 +502,7 @@ export function SalesSummaryModal({
                         <p className="text-lg font-black text-gray-900">${sale.total_amount.toLocaleString()}</p>
                       </div>
                       <p className="text-[10px] text-gray-400 font-medium">
-                        {new Date(sale.created_at).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        {parseDate(sale.created_at).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}
                       </p>
                     </div>
                   </div>
@@ -637,14 +626,6 @@ export function MeetingModal({
           await insertActivity(lead.id, user.id, 'system', 'Correo de actualización de reunión enviado')
         }
         
-        await createNotification({
-          user_id: user.id,
-          title: 'Cita Actualizada',
-          message: `Has actualizado la cita: ${meetingForm.title}`,
-          type: 'meeting',
-          related_id: lead.id
-        })
-
         if (lead.assigned_to && lead.assigned_to !== user.id) {
           await createNotification({
             user_id: lead.assigned_to,
@@ -696,14 +677,6 @@ export function MeetingModal({
         if (apiResult.email_sent) {
           await insertActivity(lead.id, user.id, 'system', 'Correo de confirmación de reunión enviado')
         }
-
-        await createNotification({
-          user_id: user.id,
-          title: 'Cita Agendada',
-          message: `Has agendado una cita para ${lead.business_name}: ${meetingForm.title}`,
-          type: 'meeting',
-          related_id: lead.id
-        })
 
         if (lead.assigned_to && lead.assigned_to !== user.id) {
           await createNotification({
@@ -881,14 +854,6 @@ export function ReminderModal({
         .single()
 
       if (error) throw error
-
-      await createNotification({
-        user_id: user.id,
-        title: 'Recordatorio Agregado',
-        message: `Se ha programado un seguimiento para ${lead.business_name}: ${reminderForm.note || 'Sin nota'}`,
-        type: 'reminder',
-        related_id: lead.id
-      })
 
       const timeStr = reminderForm.time ? ` a las ${reminderForm.time}` : ''
       await insertActivity(lead.id, user.id, 'meeting', `Recordatorio agregado para ${new Date(reminderForm.date + 'T00:00:00').toLocaleDateString('es-ES')}${timeStr}`)
@@ -1200,7 +1165,6 @@ export function FullFilesModal({
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-md" onClick={onClose} />
       <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-        
         {/* Header */}
         <div className="px-8 py-6 border-b border-gray-100 flex items-center justify-between bg-white sticky top-0 z-10">
           <div className="flex items-center gap-4">
@@ -1208,12 +1172,12 @@ export function FullFilesModal({
               <FileIcon size={24} />
             </div>
             <div>
-              <h3 className="text-xl font-bold text-gray-900">Repositorio de Archivos</h3>
+              <h3 className="text-xl font-bold text-gray-900 font-headline">Repositorio de Archivos</h3>
               <p className="text-sm text-gray-500">Documentos, contratos y propuestas asociados a {lead.business_name}</p>
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <label className="cursor-pointer bg-blue-600 text-white px-5 py-2.5 rounded-2xl text-sm font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 flex items-center gap-2">
+            <label className="cursor-pointer bg-primary text-white px-5 py-2.5 rounded-lg text-sm font-bold hover:bg-primary/90 transition-all shadow-sm flex items-center gap-2">
               {uploadingFile ? <Loader2 size={18} className="animate-spin" /> : <Upload size={18} />}
               <span>Subir Nuevo</span>
               <input ref={fileInputRef} type="file" className="hidden" onChange={onFileUpload} disabled={uploadingFile} />
@@ -1237,20 +1201,20 @@ export function FullFilesModal({
             </div>
           ) : (
             files.map((file) => (
-              <div key={file.id} className="flex items-center gap-5 p-5 bg-white border border-gray-200 rounded-[2rem] hover:border-blue-400 hover:shadow-xl hover:shadow-blue-50/50 transition-all group h-fit">
-                <div className="w-16 h-16 shrink-0 bg-blue-50 border border-blue-100 rounded-2xl flex items-center justify-center text-blue-600 shadow-sm group-hover:bg-blue-600 group-hover:text-white transition-all">
+              <div key={file.id} className="flex items-center gap-5 p-5 bg-white border border-gray-200 rounded-[12px] hover:border-orange-200 hover:shadow-sm transition-all group h-fit">
+                <div className="w-16 h-16 shrink-0 bg-orange-50 border border-orange-100 rounded-lg flex items-center justify-center text-orange-600 shadow-sm group-hover:bg-orange-500 group-hover:text-white transition-all">
                   <FileIcon size={30} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-base font-bold text-gray-900 truncate mb-1" title={file.file_name}>{file.file_name}</p>
                   <div className="flex flex-wrap items-center gap-y-1 gap-x-3">
-                    <span className="text-xs text-blue-600 font-bold bg-blue-50 px-2 py-0.5 rounded-md flex items-center gap-1.5">
+                    <span className="text-xs text-orange-700 font-bold bg-orange-50 px-2 py-0.5 rounded-md flex items-center gap-1.5">
                       <UserIcon size={12} />
                       {file.profiles?.name || 'Sistema'}
                     </span>
-                    <span className="text-xs text-gray-400 flex items-center gap-1.5 font-medium italic">
+                     <span className="text-xs text-gray-400 flex items-center gap-1.5 font-medium italic">
                       <Clock size={12} />
-                      {new Date(file.created_at).toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' })}
+                      {parseDate(file.created_at).toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' })}
                     </span>
                   </div>
                 </div>
@@ -1258,7 +1222,7 @@ export function FullFilesModal({
                   <button 
                     onClick={() => onFileAction(file, 'view')} 
                     disabled={generatingUrl === file.id} 
-                    className="p-3 text-blue-600 bg-blue-50 hover:bg-blue-600 hover:text-white rounded-2xl transition-all disabled:opacity-50"
+                    className="p-3 text-orange-600 bg-orange-50 hover:bg-orange-500 hover:text-white rounded-lg transition-all disabled:opacity-50"
                     title="Ver online"
                   >
                     {generatingUrl === file.id ? <Loader2 size={20} className="animate-spin" /> : <Eye size={20} />}
@@ -1266,7 +1230,7 @@ export function FullFilesModal({
                   <button 
                     onClick={() => onFileAction(file, 'download')} 
                     disabled={generatingUrl === file.id} 
-                    className="p-3 text-gray-600 bg-gray-50 hover:bg-gray-200 rounded-2xl transition-all disabled:opacity-50"
+                    className="p-3 text-gray-600 bg-gray-50 hover:bg-gray-200 rounded-lg transition-all disabled:opacity-50"
                     title="Descargar"
                   >
                     <Download size={20} />
@@ -1274,7 +1238,7 @@ export function FullFilesModal({
                   {(userRole === 'admin' || permissions.includes('manage_lead_content') || file.uploaded_by === user?.id) && (
                     <button 
                       onClick={() => onDeleteFile(file)}
-                      className="p-3 text-red-600 bg-red-50 hover:bg-red-600 hover:text-white rounded-2xl transition-all"
+                      className="p-3 text-red-650 bg-red-50 hover:bg-red-600 hover:text-white rounded-lg transition-all"
                       title="Eliminar"
                     >
                       <Trash2 size={20} />
@@ -1400,11 +1364,11 @@ export function FullMeetingsModal({
                         isUpcoming ? 'bg-purple-100 text-purple-700' : 'bg-gray-200 text-gray-500'
                       }`}>
                         <Clock size={12} />
-                        {new Date(meeting.start_time).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                        {parseDate(meeting.start_time).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
                       </span>
                       <span className="text-xs text-gray-400 flex items-center gap-1.5 font-medium italic">
                         <History size={12} />
-                        {new Date(meeting.start_time).toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' })}
+                        {parseDate(meeting.start_time).toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' })}
                       </span>
                     </div>
                   </div>

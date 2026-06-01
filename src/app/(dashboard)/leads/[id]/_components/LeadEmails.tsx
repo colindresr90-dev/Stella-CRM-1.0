@@ -11,7 +11,6 @@ import {
 } from "lucide-react"
 import { supabase } from "@/lib/supabaseClient"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { createNotification } from "@/lib/notifications"
 import { insertActivity } from "./utils"
 import { Lead } from "./types"
 import { io as socketIO } from "socket.io-client"
@@ -87,6 +86,7 @@ export function LeadEmails({
   const showComposeModal = propShowComposeModal !== undefined ? propShowComposeModal : localShowComposeModal
   const setShowComposeModal = propSetShowComposeModal !== undefined ? propSetShowComposeModal : localSetShowComposeModal
 
+  const [syncing, setSyncing] = useState(false)
   const [selectedEmail, setSelectedEmail] = useState<EmailRecord | null>(null)
   const [folderFilter, setFolderFilter] = useState<'all' | 'inbox' | 'sent'>('all')
   
@@ -129,6 +129,7 @@ export function LeadEmails({
 
   // Reply initial body state
   const [initialEditorBody, setInitialEditorBody] = useState("")
+  const [emailSentSuccess, setEmailSentSuccess] = useState(false)
 
   // Load custom templates
   useEffect(() => {
@@ -163,14 +164,21 @@ export function LeadEmails({
 
     socket.on('new-email', (email: any) => {
       const leadEmailLower = lead.email?.toLowerCase()
-      const matchesLead = 
+      const matchesLead =
         email.from?.address?.toLowerCase() === leadEmailLower ||
         (email.to && email.to.some((t: any) => t.address?.toLowerCase() === leadEmailLower)) ||
         (email.cc && email.cc.some((t: any) => t.address?.toLowerCase() === leadEmailLower)) ||
         (email.bcc && email.bcc.some((t: any) => t.address?.toLowerCase() === leadEmailLower))
 
       if (matchesLead) {
-        queryClient.invalidateQueries({ queryKey: ['emails', lead.id] })
+        // Append directly to cache — do NOT invalidate, which would refetch stale Redis data
+        queryClient.setQueryData(['emails', lead.id], (old: EmailRecord[] = []) => {
+          // Remove any optimistic email when the real one arrives
+          const cleaned = old.filter(e => !e.id.startsWith('optimistic-'))
+          const exists = cleaned.some(e => e.id === email.id)
+          if (exists) return cleaned
+          return [email, ...cleaned]
+        })
         queryClient.invalidateQueries({ queryKey: ['activities', lead.id] })
       }
     })
@@ -280,17 +288,40 @@ export function LeadEmails({
   }, [showComposeModal, initialEditorBody, lead.email, user])
 
   // Query emails from backend API
-  const { data: emails = [], isLoading, error, refetch } = useQuery({
+  const { data: emails = [], isLoading, error } = useQuery({
     queryKey: ['emails', lead.id],
-    queryFn: async () => {
+    queryFn: async ({ meta }) => {
       if (!lead.email) return []
-      const res = await fetch(`/api/emails?email=${encodeURIComponent(lead.email)}`)
+      const force = meta?.force ? '&force=true' : ''
+      const res = await fetch(`/api/emails?email=${encodeURIComponent(lead.email)}${force}`)
       if (!res.ok) throw new Error("Error al obtener correos")
       const result = await res.json()
       return (result.emails || []) as EmailRecord[]
     },
-    enabled: !!lead.email
+    enabled: !!lead.email,
+    staleTime: 15000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   })
+
+  const handleSync = async () => {
+    setSyncing(true)
+    try {
+      await queryClient.fetchQuery({
+        queryKey: ['emails', lead.id],
+        queryFn: async () => {
+          if (!lead.email) return []
+          const res = await fetch(`/api/emails?email=${encodeURIComponent(lead.email)}&force=true`)
+          if (!res.ok) throw new Error("Error al obtener correos")
+          const result = await res.json()
+          return (result.emails || []) as EmailRecord[]
+        },
+        staleTime: 0,
+      })
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   // Generate ISO dates for mock emails so they display correct times: 08:36, 08:30, 08:27, 08:20
   const getTodayAtTime = (timeStr: string) => {
@@ -505,6 +536,23 @@ export function LeadEmails({
 
     setSendingEmail(true)
 
+    // Optimistic update — add sent email to list immediately before API call
+    const optimisticId = `optimistic-${Date.now()}`
+    const optimisticEmail: EmailRecord = {
+      id: optimisticId,
+      from: { name: "Tú", address: "info@taskmasters.site" },
+      to: toEmail.trim().split(',').map(e => ({ name: "", address: e.trim() })),
+      cc: cc.trim() ? cc.trim().split(',').map(e => ({ name: "", address: e.trim() })) : undefined,
+      bcc: bcc.trim() ? bcc.trim().split(',').map(e => ({ name: "", address: e.trim() })) : undefined,
+      subject: subject.trim(),
+      preview: (editorRef.current?.innerText || "").slice(0, 100) + "...",
+      body: editorRef.current?.innerHTML || "",
+      date: new Date().toISOString(),
+      folder: "Sent"
+    }
+    queryClient.setQueryData(['emails', lead.id], (old: EmailRecord[] = []) => [optimisticEmail, ...old])
+    setFolderFilter('all')
+
     try {
       const res = await fetch('/api/emails/send', {
         method: 'POST',
@@ -515,16 +563,18 @@ export function LeadEmails({
           htmlText: bodyHtml,
           cc: cc.trim() || undefined,
           bcc: bcc.trim() || undefined,
-          attachments: attachments.length > 0 ? attachments : undefined
+          attachments: attachments.length > 0 ? attachments : undefined,
+          lead_id: lead.id
         })
       })
 
       const result = await res.json()
+      // 202 = queued successfully; 200 = sent synchronously (fallback)
       if (!res.ok || !result.success) {
-        throw new Error(result.error || "Error al enviar correo por SMTP")
+        throw new Error(result.error || "Error al encolar el correo")
       }
 
-      await insertActivity(lead.id, user.id, 'note', `Correo enviado: "${subject.trim()}" a ${lead.email}`)
+      await insertActivity(lead.id, user.id, 'note', `Correo en cola: "${subject.trim()}" a ${lead.email}`)
 
       if (createFollowUp) {
         const followUpDate = new Date()
@@ -542,39 +592,10 @@ export function LeadEmails({
           })
 
         if (!taskErr) {
-          await createNotification({
-            user_id: user.id,
-            title: 'Tarea de seguimiento creada',
-            message: `Recordatorio de correo creado para ${lead.business_name || lead.contact_name}`,
-            type: 'reminder',
-            related_id: lead.id
-          })
-          
           await insertActivity(lead.id, user.id, 'meeting', `Recordatorio automático de seguimiento programado para el ${new Date(dateStr + 'T00:00:00').toLocaleDateString('es-ES')}`)
         }
       }
 
-      if (socketRef.current) {
-        const formatAddresses = (addrStr?: string) => {
-          if (!addrStr) return []
-          return addrStr.split(',').map((email) => ({ name: "", address: email.trim() }))
-        }
-        
-        socketRef.current.emit('email-sent', {
-          id: result.messageId || Date.now().toString(),
-          from: { name: "Taskmasters CRM", address: "info@taskmasters.site" },
-          to: formatAddresses(toEmail),
-          cc: formatAddresses(cc),
-          bcc: formatAddresses(bcc),
-          subject: subject.trim(),
-          preview: bodyHtml.replace(/<[^>]*>/g, '').slice(0, 100) + "...",
-          body: bodyHtml,
-          date: new Date().toISOString(),
-          folder: 'Sent'
-        })
-      }
-
-      queryClient.invalidateQueries({ queryKey: ['emails', lead.id] })
       queryClient.invalidateQueries({ queryKey: ['activities', lead.id] })
       queryClient.invalidateQueries({ queryKey: ['reminders', lead.id] })
 
@@ -585,9 +606,14 @@ export function LeadEmails({
       setInitialEditorBody("")
       setCreateFollowUp(false)
       if (editorRef.current) editorRef.current.innerHTML = ""
-      setShowComposeModal(false)
-      alert("Correo enviado exitosamente.")
+      setEmailSentSuccess(true)
+      setTimeout(() => {
+        setEmailSentSuccess(false)
+        setShowComposeModal(false)
+      }, 900)
     } catch (err: any) {
+      // Roll back optimistic update on error
+      queryClient.setQueryData(['emails', lead.id], (old: EmailRecord[] = []) => old.filter(e => e.id !== optimisticId))
       console.error(err)
       alert("Error al enviar el correo: " + err.message)
     } finally {
@@ -622,12 +648,12 @@ export function LeadEmails({
           </span>
           
           <button
-            onClick={() => refetch()}
-            disabled={isLoading}
+            onClick={handleSync}
+            disabled={syncing}
             className="p-1 hover:bg-slate-100 text-slate-400 hover:text-slate-700 rounded-md transition-all cursor-pointer shrink-0"
             title="Sincronizar correos"
           >
-            <RotateCw size={13} className={isLoading ? "animate-spin text-primary" : ""} />
+            <RotateCw size={13} className={syncing ? "animate-spin text-primary" : ""} />
           </button>
         </div>
 
@@ -851,6 +877,15 @@ export function LeadEmails({
                   <X size={16} />
                 </button>
 
+                {emailSentSuccess ? (
+                  <div className="flex flex-col items-center justify-center gap-3 py-10 flex-1">
+                    <div className="w-12 h-12 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center">
+                      <CheckCircle2 size={24} className="text-emerald-500" />
+                    </div>
+                    <p className="text-sm font-bold text-slate-800">¡Correo enviado!</p>
+                    <p className="text-xs text-slate-400 font-semibold">Ya aparece en el historial</p>
+                  </div>
+                ) : (
                 <div className="flex gap-4 items-stretch flex-1 overflow-hidden">
                   <div className="flex-1 flex flex-col overflow-hidden gap-3">
                     <div>
@@ -1234,6 +1269,7 @@ export function LeadEmails({
                   )}
 
                 </div>
+                )}
               </motion.div>
             </div>
           )}

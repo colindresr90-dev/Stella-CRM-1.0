@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from "react"
 import { 
   Building2, Pencil, X, CheckCircle, XCircle, Loader2, 
   Plus, Mail, Phone, MoreHorizontal, ChevronDown, Check,
-  FileText
+  FileText, Calendar, Clock, User
 } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { supabase } from "@/lib/supabaseClient"
@@ -28,7 +28,8 @@ export function LeadInfoPanel({
   onTabChange,
   onMeetingClick,
   onReminderClick,
-  onBackClick
+  onBackClick,
+  lastActivityDate
 }: {
   lead: Lead
   user: any
@@ -45,8 +46,13 @@ export function LeadInfoPanel({
   onMeetingClick: () => void
   onReminderClick: () => void
   onBackClick: () => void
+  lastActivityDate?: string | null
 }) {
   const queryClient = useQueryClient()
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => {
+    setMounted(true)
+  }, [])
   const [editForm, setEditForm] = useState({
     business_name: '',
     contact_name: '',
@@ -129,8 +135,21 @@ export function LeadInfoPanel({
     return name.slice(0, 2).toUpperCase()
   }
 
-  const getLastActivityDate = () => {
-    const date = new Date(lead.created_at || new Date())
+  const parseDate = (str: string | null | undefined) => {
+    if (!str) return new Date()
+    const normalized = str.replace(' ', 'T')
+    if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+      return new Date(normalized)
+    }
+    const hasTimezone = normalized.endsWith('Z') || 
+                        normalized.includes('+') || 
+                        (normalized.includes('T') && normalized.indexOf('-', normalized.indexOf('T')) !== -1)
+    
+    return new Date(hasTimezone ? normalized : `${normalized}Z`)
+  }
+
+  const getLastActivityDate = (dateStr: string | null | undefined) => {
+    const date = parseDate(dateStr || lead.created_at)
     return date.toLocaleDateString('es-ES', { 
       day: 'numeric', 
       month: 'short', 
@@ -171,21 +190,41 @@ export function LeadInfoPanel({
         return { label: 'Ganado', bg: 'bg-emerald-600 border-emerald-600 hover:bg-emerald-700', text: 'text-white' }
       case 'perdido':
         return { label: 'Perdido', bg: 'bg-red-50 border-red-100 hover:bg-red-100/50', text: 'text-red-700' }
+      case 'no interesado':
+        return { label: 'No interesado', bg: 'bg-slate-50 border-slate-200/60 hover:bg-slate-100/50', text: 'text-slate-700' }
+      case 'no contactar':
+        return { label: 'No contactar', bg: 'bg-rose-50 border-rose-100 hover:bg-rose-100/50', text: 'text-rose-700' }
       default:
         return { label: statusVal || 'Nuevo', bg: 'bg-blue-50 border-blue-100 hover:bg-blue-100/50', text: 'text-blue-700' }
+    }
+  }
+
+  const getDotColor = (statusVal: string) => {
+    switch (statusVal?.toLowerCase()) {
+      case 'nuevo': return 'bg-blue-500'
+      case 'contactado': return 'bg-amber-500'
+      case 'interesado': return 'bg-emerald-500'
+      case 'propuesta': return 'bg-purple-500'
+      case 'negociacion': return 'bg-orange-500'
+      case 'no interesado': return 'bg-slate-400'
+      case 'no contactar': return 'bg-rose-500'
+      case 'perdido': return 'bg-red-500'
+      default: return 'bg-slate-400'
     }
   }
 
   const currentStatusStyle = getStatusStyle(lead?.status || 'nuevo')
   
   const statusOptions = [
-    { value: 'nuevo', label: 'Nuevo', bg: 'bg-blue-50 border-blue-100 hover:bg-blue-100/30', text: 'text-blue-700' },
-    { value: 'contactado', label: 'Contactado', bg: 'bg-amber-50 border-amber-100 hover:bg-amber-100/30', text: 'text-amber-700' },
-    { value: 'interesado', label: 'Interesado', bg: 'bg-emerald-50 border-emerald-100 hover:bg-emerald-100/30', text: 'text-emerald-700' },
-    { value: 'propuesta', label: 'Propuesta enviada', bg: 'bg-purple-50 border-purple-100 hover:bg-purple-100/30', text: 'text-purple-700' },
-    { value: 'negociacion', label: 'Negociación', bg: 'bg-orange-50 border-orange-100 hover:bg-orange-100/30', text: 'text-orange-700' },
-    { value: 'venta', label: 'Ganado', bg: 'bg-emerald-600 border-emerald-600 hover:bg-emerald-700', text: 'text-white' },
-    { value: 'perdido', label: 'Perdido', bg: 'bg-red-50 border-red-100 hover:bg-red-100/30', text: 'text-red-700' }
+    { value: 'nuevo', label: 'Nuevo' },
+    { value: 'contactado', label: 'Contactado' },
+    { value: 'interesado', label: 'Interesado' },
+    { value: 'propuesta', label: 'Propuesta enviada' },
+    { value: 'negociacion', label: 'Negociación' },
+    { value: 'venta', label: 'Ganado' },
+    { value: 'perdido', label: 'Perdido' },
+    { value: 'no interesado', label: 'No interesado' },
+    { value: 'no contactar', label: 'No contactar' }
   ]
 
   const handleSelectStatus = (statusValue: string) => {
@@ -304,17 +343,17 @@ export function LeadInfoPanel({
 
             {/* Profile Info Header */}
             <div className="text-center pt-0.5">
-              <div className="w-12 h-12 bg-slate-50 border-[0.5px] border-slate-200 rounded-full flex items-center justify-center text-slate-700 text-[15px] font-bold mx-auto mb-1">
+              <div className="w-12 h-12 bg-slate-50 border-[0.5px] border-slate-200 rounded-full flex items-center justify-center text-slate-700 text-[15px] font-bold mx-auto mb-2">
                 {getInitials()}
               </div>
               
-              <h2 className="text-[16px] font-bold text-slate-800 leading-tight">
-                {lead.contact_name}
+              <h2 className="text-lg font-bold text-slate-900 leading-tight font-headline tracking-tight">
+                {lead.business_name}
               </h2>
               
-              <div className="flex items-center justify-center gap-1.5 mt-1 text-[16px] text-slate-700 font-bold">
-                <Building2 size={15} className="text-slate-400 shrink-0" />
-                <span>{lead.business_name}</span>
+              <div className="flex items-center justify-center gap-1 mt-1 text-sm font-medium text-slate-500">
+                <User size={13} className="text-slate-400 shrink-0" />
+                <span>{lead.contact_name}</span>
               </div>
               
               {/* Dropdown Selector of Lead Status */}
@@ -322,13 +361,14 @@ export function LeadInfoPanel({
                 <button
                   type="button"
                   onClick={() => setShowStatusDropdown(!showStatusDropdown)}
-                  className={`w-full px-3 py-1.5 rounded-full border-[0.5px] flex items-center justify-between text-xs font-bold transition-all cursor-pointer outline-none ${currentStatusStyle.bg} ${currentStatusStyle.text}`}
+                  className="w-full px-3 py-1.5 rounded-full border border-slate-200 bg-white hover:bg-slate-50/50 flex items-center justify-between text-xs font-semibold text-slate-750 transition-all cursor-pointer outline-none shadow-sm"
                 >
                   <div className="flex items-center gap-1.5">
-                    {lead.status !== 'venta' && <span className={`w-1.5 h-1.5 rounded-full ${lead.status === 'perdido' ? 'bg-red-500' : lead.status === 'nuevo' ? 'bg-blue-500' : lead.status === 'contactado' ? 'bg-amber-500' : lead.status === 'interesado' ? 'bg-emerald-500' : lead.status === 'propuesta' ? 'bg-purple-500' : 'bg-orange-500'}`} />}
+                    {lead.status !== 'venta' && <span className={`w-1.5 h-1.5 rounded-full ${getDotColor(lead.status)}`} />}
+                    {lead.status === 'venta' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />}
                     <span>{currentStatusStyle.label}</span>
                   </div>
-                  <ChevronDown size={12} className="opacity-70 shrink-0 ml-0.5" />
+                  <ChevronDown size={12} className="text-slate-400 shrink-0 ml-0.5" />
                 </button>
 
                 <AnimatePresence>
@@ -338,7 +378,7 @@ export function LeadInfoPanel({
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -4 }}
                       transition={{ duration: 0.1 }}
-                      className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-[60] p-1 space-y-0.5"
+                      className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-[60] p-1.5 space-y-0.5"
                     >
                       {statusOptions.map((opt) => {
                         const isSelected = lead.status === opt.value
@@ -347,13 +387,16 @@ export function LeadInfoPanel({
                             key={opt.value}
                             type="button"
                             onClick={() => handleSelectStatus(opt.value)}
-                            className={`w-full px-3 py-1.5 rounded-md flex items-center justify-between text-[11px] font-bold text-left transition-colors cursor-pointer border-none outline-none ${opt.bg} ${opt.text}`}
+                            className={`w-full px-3 py-1.5 rounded-md flex items-center justify-between text-[11px] font-semibold text-left transition-colors cursor-pointer border-none outline-none bg-white hover:bg-slate-50 text-slate-700 ${
+                              isSelected ? 'bg-slate-50 text-slate-900 font-bold' : ''
+                            }`}
                           >
                             <div className="flex items-center gap-1.5">
-                              {opt.value !== 'venta' && <span className={`w-1.5 h-1.5 rounded-full ${opt.value === 'perdido' ? 'bg-red-500' : opt.value === 'nuevo' ? 'bg-blue-500' : opt.value === 'contactado' ? 'bg-amber-500' : opt.value === 'interesado' ? 'bg-emerald-500' : opt.value === 'propuesta' ? 'bg-purple-500' : 'bg-orange-500'}`} />}
+                              {opt.value !== 'venta' && <span className={`w-1.5 h-1.5 rounded-full ${getDotColor(opt.value)}`} />}
+                              {opt.value === 'venta' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />}
                               <span>{opt.label}</span>
                             </div>
-                            {isSelected && <Check size={11} className="shrink-0" />}
+                            {isSelected && <Check size={11} className="text-slate-550 shrink-0" />}
                           </button>
                         )
                       })}
@@ -365,13 +408,13 @@ export function LeadInfoPanel({
 
             {/* Quick Actions (Log, Email, Call, More) */}
             <div className="grid grid-cols-2 gap-1.5 pt-0.5">
-              {/* Registrar */}
+              {/* Reunión */}
               <button 
-                onClick={onReminderClick}
+                onClick={onMeetingClick}
                 className="flex flex-col items-center justify-center h-[42px] p-0.5 rounded-lg border-[0.5px] border-slate-200/80 bg-slate-50 hover:bg-slate-100/50 transition-colors cursor-pointer"
               >
-                <Plus size={17} className="text-slate-500" />
-                <span className="text-[11px] font-bold text-slate-600 leading-none mt-0.5">Registrar</span>
+                <Calendar size={17} className="text-slate-500" />
+                <span className="text-[11px] font-bold text-slate-600 leading-none mt-0.5">Reunión</span>
               </button>
 
               {/* Correo */}
@@ -383,13 +426,13 @@ export function LeadInfoPanel({
                 <span className="text-[11px] font-bold text-slate-600 leading-none mt-0.5">Correo</span>
               </button>
 
-              {/* Llamar */}
+              {/* Tarea */}
               <button 
-                onClick={onMeetingClick}
+                onClick={onReminderClick}
                 className="flex flex-col items-center justify-center h-[42px] p-0.5 rounded-lg border-[0.5px] border-slate-200/80 bg-slate-50 hover:bg-slate-100/50 transition-colors cursor-pointer"
               >
-                <Phone size={17} className="text-slate-500" />
-                <span className="text-[11px] font-bold text-slate-600 leading-none mt-0.5">Llamar</span>
+                <Clock size={17} className="text-slate-500" />
+                <span className="text-[11px] font-bold text-slate-600 leading-none mt-0.5">Tarea</span>
               </button>
 
               {/* Notas */}
@@ -404,7 +447,7 @@ export function LeadInfoPanel({
 
             {/* Primary Action Buttons (Orange CTA) */}
             <div className="pt-0.5 space-y-1">
-              {lead.status !== 'venta' && lead.status !== 'perdido' ? (
+              {lead.status !== 'venta' && lead.status !== 'perdido' && lead.status !== 'no interesado' && lead.status !== 'no contactar' ? (
                 <>
                   <button
                     onClick={onCloseSaleClick}
@@ -412,22 +455,28 @@ export function LeadInfoPanel({
                   >
                     REGISTRAR VENTA
                   </button>
-                  <button
-                    onClick={onMarkLostClick}
-                    className="w-full h-[32px] flex items-center justify-center bg-transparent hover:bg-primary/10 border-[1.5px] border-primary text-primary rounded-lg text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer text-center"
-                  >
-                    MARCAR COMO PERDIDO
-                  </button>
                 </>
               ) : (
                 <div className="flex gap-1.5">
                   <div className={`flex-1 h-[32px] rounded-lg text-[11px] font-bold uppercase tracking-wider border flex items-center justify-center gap-1 ${
                     lead.status === 'venta' 
                       ? 'bg-green-50 text-green-700 border-green-200' 
-                      : 'bg-red-50 text-red-700 border-red-200'
+                      : lead.status === 'perdido'
+                        ? 'bg-red-50 text-red-700 border-red-200'
+                        : lead.status === 'no interesado'
+                          ? 'bg-slate-50 text-slate-700 border-slate-200'
+                          : 'bg-rose-50 text-rose-700 border-rose-200'
                   }`}>
                     {lead.status === 'venta' ? <CheckCircle size={11} /> : <XCircle size={11} />}
-                    <span>{lead.status === 'venta' ? 'Ganado' : 'Perdido'}</span>
+                    <span>
+                      {lead.status === 'venta' 
+                        ? 'Ganado' 
+                        : lead.status === 'perdido' 
+                          ? 'Perdido' 
+                          : lead.status === 'no interesado' 
+                            ? 'No Interesado' 
+                            : 'No Contactar'}
+                    </span>
                   </div>
                   {userRole === 'admin' && (
                     <button
@@ -445,7 +494,7 @@ export function LeadInfoPanel({
             {/* Last activity timestamp pill */}
             <div className="flex justify-center pt-0.5">
               <div className="px-2.5 py-0.5 bg-slate-100 rounded-full text-[11px] font-medium text-slate-500 tracking-wide">
-                {lead.contact_name === "Rodrigo Colindres" ? "Hoy a las 08:36" : `Última actividad: ${getLastActivityDate()}`}
+                Última actividad: {mounted ? getLastActivityDate(lastActivityDate) : '...'}
               </div>
             </div>
 
@@ -453,7 +502,7 @@ export function LeadInfoPanel({
             <div className="border-t border-slate-100 pt-2.5 space-y-3.5">
               {/* Contacto Group */}
               <div className="space-y-1.5">
-                <h3 className="text-[11px] font-bold text-slate-400 tracking-wider uppercase">
+                <h3 className="text-xs font-bold text-slate-500 font-headline">
                   Contacto
                 </h3>
                 <div className="grid grid-cols-[64px_1fr] gap-x-2 gap-y-1.5 text-xs">
@@ -472,7 +521,7 @@ export function LeadInfoPanel({
 
               {/* Negocio Group */}
               <div className="border-t border-slate-100 pt-2 space-y-1.5">
-                <h3 className="text-[11px] font-bold text-slate-400 tracking-wider uppercase">
+                <h3 className="text-xs font-bold text-slate-500 font-headline">
                   Negocio
                 </h3>
                 <div className="grid grid-cols-[64px_1fr] gap-x-2 gap-y-1.5 text-xs">

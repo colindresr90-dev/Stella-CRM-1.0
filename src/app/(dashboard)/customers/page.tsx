@@ -1,9 +1,11 @@
 "use client"
 
-import { useEffect, useState, useRef } from "react"
+import { useEffect, useState, useRef, useMemo } from "react"
 import { useRouter } from "next/navigation"
+import { useQuery } from "@tanstack/react-query"
 import { supabase } from "@/lib/supabaseClient"
 import { getUserRole } from "@/lib/authHelper"
+import { useProfiles } from "@/hooks/useProfiles"
 import { 
   Users, 
   Search, 
@@ -48,130 +50,115 @@ type Metrics = {
 
 export default function CustomersPage() {
   const router = useRouter()
-  const [loading, setLoading] = useState(true)
-  const [customers, setCustomers] = useState<Customer[]>([])
-  const [metrics, setMetrics] = useState<Metrics>({ totalClients: 0, totalRevenue: 0, totalPending: 0 })
-  const [rawSales, setRawSales] = useState<any[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [filter, setFilter] = useState<'Todos' | 'Con deuda' | 'Sin actividad'>('Todos')
-  
+
   // Expert Features State
   const [selectedIds, setSelectedIds] = useState<string[]>([])
-  const [allProfiles, setAllProfiles] = useState<{id: string, name: string}[]>([])
+  const { data: allProfiles = [] } = useProfiles()
   const [isReassigning, setIsReassigning] = useState(false)
   const [userRole, setUserRole] = useState<string | null>(null)
   const [permissions, setPermissions] = useState<string[]>([])
-  
-  // Auth & Data Fetch
+
+  // Auth guard
   useEffect(() => {
-    const fetchData = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        router.push("/login")
-        return
-      }
-
-      const { role, permissions } = await getUserRole()
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) router.push("/login")
+    })
+    getUserRole().then(({ role, permissions: perms }) => {
       setUserRole(role)
-      setPermissions(permissions)
-      
-      const isSystemAdmin = role === 'admin'
-      const canViewAll = true // Everyone can view all customers now
-      let query = supabase.from('leads').select('*').eq('status', 'venta')
-      
-      if (!canViewAll) {
-        query = query.eq('assigned_to', user.id)
-      }
-      
-      const { data: leads, error: leadsError } = await query
-      if (leadsError || !leads) {
-        console.error("Error fetching leads:", leadsError)
-        setLoading(false)
-        return
-      }
+      setPermissions(perms)
+    })
+  }, [router])
 
-      // 2. Fetch all sales for these leads
-      const leadIds = leads.map(l => l.id)
-      const { data: sales, error: salesError } = await supabase
-        .from('sales')
-        .select('*')
-        .in('lead_id', leadIds)
-      
-      // 3. Fetch profiles for assignment names
-      const assignedIds = [...new Set(leads.map(l => l.assigned_to).filter(Boolean))]
-      const { data: profiles } = await supabase.from('profiles').select('id, name').in('id', assignedIds)
-      const profileMap: Record<string, string> = {}
-      profiles?.forEach(p => profileMap[p.id] = p.name)
-
-      // 4. Fetch recent activity (last 7 days)
+  // Cached data query — 3-min staleTime, avoids re-fetching on every navigation
+  const { data: rawData, isLoading: loading } = useQuery({
+    queryKey: ['customers_raw'],
+    staleTime: 3 * 60 * 1000,
+    queryFn: async () => {
       const sevenDaysAgo = new Date()
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
-      const { data: recentActivities } = await supabase
-        .from('activities')
-        .select('lead_id')
-        .in('lead_id', leadIds)
-        .gte('created_at', sevenDaysAgo.toISOString())
-      
-      const activeLeadIds = new Set(recentActivities?.map(a => a.lead_id) || [])
 
-      // 4.1 Fetch all profiles if admin or reassign permission
-      if (isSystemAdmin || permissions.includes('reassign_leads')) {
-        const { data: profilesData } = await supabase.from('profiles').select('id, name').order('name')
-        if (profilesData) setAllProfiles(profilesData)
+      const [{ data: leads, error: leadsError }, { data: recentActivities }] = await Promise.all([
+        supabase
+          .from('leads')
+          .select(`
+            id, business_name, contact_name, phone, email, assigned_to, status, closed_at,
+            sales ( id, lead_id, package, total_amount, deposit_amount, pending_amount, status, created_at )
+          `)
+          .eq('status', 'venta'),
+        supabase
+          .from('activities')
+          .select('lead_id')
+          .eq('status', 'venta')
+          .gte('created_at', sevenDaysAgo.toISOString())
+      ])
+
+      if (leadsError || !leads) throw leadsError || new Error('No leads data')
+      return {
+        leads,
+        activeLeadIds: new Set((recentActivities || []).map((a: any) => a.lead_id))
       }
-      setUserRole(role)
+    }
+  })
 
-      // 5. Aggregate Data
-      const customersData: Customer[] = leads.map(lead => {
-        const leadSales = sales?.filter(s => s.lead_id === lead.id) || []
-        const totalSpent = leadSales.reduce((acc, s) => acc + (s.total_amount || 0), 0)
-        const pendingTotal = leadSales.reduce((acc, s) => acc + (s.pending_amount || 0), 0)
-        const lastSaleDate = leadSales.length > 0 
-          ? leadSales.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0].created_at 
-          : null
-
-        return {
-          id: lead.id,
-          business_name: lead.business_name,
-          contact_name: lead.contact_name,
-          phone: lead.phone,
-          email: lead.email,
-          assigned_to: lead.assigned_to,
-          assigned_name: profileMap[lead.assigned_to] || 'Sin asignar',
-          total_spent: totalSpent,
-          pending_total: pendingTotal,
-          last_purchase: lastSaleDate,
-          client_since: lead.closed_at,
-          has_activity: activeLeadIds.has(lead.id),
-          health: 
-            totalSpent > 2500 && pendingTotal === 0 ? 'VIP' :
-            pendingTotal > 0 && !activeLeadIds.has(lead.id) ? 'Riesgo' :
-            lastSaleDate && new Date(lastSaleDate).getTime() < new Date().getTime() - (60 * 24 * 60 * 60 * 1000) ? 'Dormido' :
-            'Bueno',
-          upsell_suggestion: 
-            leadSales.some(s => s.package.includes('Landing')) ? 'SEO & Mantenimiento' :
-            leadSales.some(s => s.package.includes('Empresarial')) ? 'Ecommerce & Reservas' :
-            leadSales.some(s => s.package.includes('Ecommerce')) ? 'Marketing Digital' :
-            'Servicios Premium'
-        }
-      })
-
-      // Calculate Top Metrics
-      const totalRevenue = customersData.reduce((acc, c) => acc + c.total_spent, 0)
-      const totalPending = customersData.reduce((acc, c) => acc + c.pending_total, 0)
-
-      setCustomers(customersData)
-      setRawSales(sales || [])
-      setMetrics({
-        totalClients: customersData.length,
-        totalRevenue,
-        totalPending
-      })
-      setLoading(false)
+  // Derive customers + metrics from raw query data — recomputes when profiles or data change
+  const { customers, rawSales, metrics } = useMemo(() => {
+    if (!rawData) return {
+      customers: [] as Customer[],
+      rawSales: [] as any[],
+      metrics: { totalClients: 0, totalRevenue: 0, totalPending: 0 } as Metrics
     }
 
-    fetchData()
-  }, [router])
+    const { leads, activeLeadIds } = rawData
+    const profileMap: Record<string, string> = {}
+    allProfiles.forEach(p => { profileMap[p.id] = p.name })
+
+    const sales = leads.flatMap((l: any) => l.sales || [])
+
+    const customersData: Customer[] = leads.map((lead: any) => {
+      const leadSales: any[] = lead.sales || []
+      const totalSpent = leadSales.reduce((acc, s) => acc + (s.total_amount || 0), 0)
+      const pendingTotal = leadSales.reduce((acc, s) => acc + (s.pending_amount || 0), 0)
+      const lastSaleDate = leadSales.length > 0
+        ? leadSales.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0].created_at
+        : null
+
+      return {
+        id: lead.id,
+        business_name: lead.business_name,
+        contact_name: lead.contact_name,
+        phone: lead.phone,
+        email: lead.email,
+        assigned_to: lead.assigned_to,
+        assigned_name: profileMap[lead.assigned_to] || 'Sin asignar',
+        total_spent: totalSpent,
+        pending_total: pendingTotal,
+        last_purchase: lastSaleDate,
+        client_since: lead.closed_at,
+        has_activity: activeLeadIds.has(lead.id),
+        health:
+          totalSpent > 2500 && pendingTotal === 0 ? 'VIP' :
+          pendingTotal > 0 && !activeLeadIds.has(lead.id) ? 'Riesgo' :
+          lastSaleDate && new Date(lastSaleDate).getTime() < new Date().getTime() - (60 * 24 * 60 * 60 * 1000) ? 'Dormido' :
+          'Bueno',
+        upsell_suggestion:
+          leadSales.some(s => s.package.includes('Landing')) ? 'SEO & Mantenimiento' :
+          leadSales.some(s => s.package.includes('Empresarial')) ? 'Ecommerce & Reservas' :
+          leadSales.some(s => s.package.includes('Ecommerce')) ? 'Marketing Digital' :
+          'Servicios Premium'
+      }
+    })
+
+    const totalRevenue = customersData.reduce((acc, c) => acc + c.total_spent, 0)
+    const totalPending = customersData.reduce((acc, c) => acc + c.pending_total, 0)
+
+    return {
+      customers: customersData,
+      rawSales: sales,
+      metrics: { totalClients: customersData.length, totalRevenue, totalPending }
+    }
+  }, [rawData, allProfiles])
 
   const filteredCustomers = customers.filter(c => {
     const matchesSearch = c.business_name.toLowerCase().includes(searchTerm.toLowerCase()) || 

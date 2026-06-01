@@ -25,6 +25,23 @@ export function LeadFiles({
   onDeleteFileClick: (file: FileRecord) => void
 }) {
   const queryClient = useQueryClient()
+  const [mounted, setMounted] = useState(false)
+  React.useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  const parseDate = (str: string | null | undefined) => {
+    if (!str) return new Date()
+    const normalized = str.replace(' ', 'T')
+    if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+      return new Date(normalized)
+    }
+    const hasTimezone = normalized.endsWith('Z') || 
+                        normalized.includes('+') || 
+                        (normalized.includes('T') && normalized.indexOf('-', normalized.indexOf('T')) !== -1)
+    
+    return new Date(hasTimezone ? normalized : `${normalized}Z`)
+  }
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [generatingUrl, setGeneratingUrl] = useState<string | null>(null)
   const [uploadStatus, setUploadStatus] = useState<string | null>(null)
@@ -86,15 +103,6 @@ export function LeadFiles({
       if (dbError) throw dbError
 
       await insertActivity(lead.id, user.id, 'file', `Archivo subido: ${file.name}`)
-
-      // NOTIFICATION: File Uploaded
-      await createNotification({
-        user_id: user.id,
-        title: 'Archivo Guardado',
-        message: `Has subido el archivo: ${file.name}`,
-        type: 'update',
-        related_id: lead.id
-      })
 
       if (lead.assigned_to && lead.assigned_to !== user.id) {
         await createNotification({
@@ -223,7 +231,7 @@ export function LeadFiles({
                     {file.file_name}
                   </p>
                   <p className="text-[9px] text-slate-400 font-semibold mt-0.5">
-                    {new Date(file.created_at).toLocaleDateString('es-ES')}
+                    {mounted ? parseDate(file.created_at).toLocaleDateString('es-ES') : '...'}
                   </p>
                 </div>
                 <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">

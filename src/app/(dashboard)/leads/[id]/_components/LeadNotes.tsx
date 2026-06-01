@@ -37,6 +37,23 @@ export function LeadNotes({
   onDeleteNoteClick: (note: Note) => void
 }) {
   const queryClient = useQueryClient()
+  const [mounted, setMounted] = useState(false)
+  React.useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  const parseDate = (str: string | null | undefined) => {
+    if (!str) return new Date()
+    const normalized = str.replace(' ', 'T')
+    if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+      return new Date(normalized)
+    }
+    const hasTimezone = normalized.endsWith('Z') || 
+                        normalized.includes('+') || 
+                        (normalized.includes('T') && normalized.indexOf('-', normalized.indexOf('T')) !== -1)
+    
+    return new Date(hasTimezone ? normalized : `${normalized}Z`)
+  }
   const [hasContent, setHasContent] = useState(false)
   const [showColorPicker, setShowColorPicker] = useState(false)
   const editorRef = useRef<HTMLDivElement>(null)
@@ -89,14 +106,6 @@ export function LeadNotes({
       if (error) throw error
 
       await insertActivity(lead.id, user.id, 'note', 'Nota agregada')
-      await createNotification({
-        user_id: user.id,
-        title: 'Nota Guardada',
-        message: `Has agregado una nueva nota en ${lead.business_name}`,
-        type: 'update',
-        related_id: lead.id
-      })
-
       if (lead.assigned_to && lead.assigned_to !== user.id) {
         await createNotification({
           user_id: lead.assigned_to,
@@ -149,8 +158,6 @@ export function LeadNotes({
     const textContent = editorRef.current ? editorRef.current.innerText.trim() : ""
     
     if (!textContent && !htmlContent.includes("<img") && !htmlContent.includes("<iframe") && !htmlContent.includes("<li")) return
-    if (addNoteMutation.isPending) return
-    
     addNoteMutation.mutate(htmlContent)
   }
 
@@ -159,22 +166,22 @@ export function LeadNotes({
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.1 }}
-      className="glass-panel border border-white/40 rounded-3xl overflow-hidden relative shadow-[0_8px_30px_rgb(0,0,0,0.04)]"
+      className="glass-panel border-[0.5px] border-slate-200 rounded-[12px] overflow-hidden relative shadow-none"
     >
-      <div className="absolute top-0 left-0 -ml-10 -mt-10 w-32 h-32 bg-blue-400/20 blur-3xl rounded-full pointer-events-none" />
+      <div className="absolute top-0 left-0 -ml-10 -mt-10 w-32 h-32 bg-primary/10 blur-3xl rounded-full pointer-events-none" />
       
       <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <FileText size={20} className="text-blue-600" />
+          <FileText size={20} className="text-primary" />
           <h3 className="text-lg font-bold text-slate-800">Notas</h3>
         </div>
       </div>
 
       <div className="p-6">
         {/* Note Input */}
-        <div className="mb-8 p-6 bg-white/40 rounded-2xl border border-white/50 backdrop-blur-md space-y-3">
+        <div className="mb-6 p-4 bg-white/40 rounded-[12px] border border-white/50 backdrop-blur-md space-y-3">
           {/* Toolbar */}
-          <div className="flex items-center gap-1.5 bg-white border border-slate-200/60 p-1.5 rounded-2xl shadow-sm flex-wrap">
+          <div className="flex items-center gap-1.5 bg-white border border-slate-200/60 p-1.5 rounded-lg shadow-sm flex-wrap">
             <button
               type="button"
               onClick={() => execEditorCommand("bold")}
@@ -257,7 +264,7 @@ export function LeadNotes({
               ref={editorRef}
               onInput={handleInput}
               suppressContentEditableWarning={true}
-              className="w-full px-4 py-3 bg-white/40 border border-slate-200/70 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500/40 outline-none transition-all min-h-[120px] max-h-[300px] overflow-y-auto text-slate-800 leading-relaxed rich-editor prose prose-sm max-w-none"
+              className="w-full px-4 py-3 bg-white/40 border border-slate-200/70 rounded-[12px] text-sm focus:ring-2 focus:ring-primary/10 focus:border-primary/40 outline-none transition-all min-h-[120px] max-h-[300px] overflow-y-auto text-slate-800 leading-relaxed rich-editor prose prose-sm max-w-none"
             />
             {/* Custom placeholder for contentEditable */}
             {!hasContent && (
@@ -281,7 +288,7 @@ export function LeadNotes({
             <button 
               onClick={handleAddNote}
               disabled={addNoteMutation.isPending || !hasContent}
-              className="bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 transition-all shadow-md shadow-blue-100/50 flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest cursor-pointer"
+              className="bg-primary hover:bg-primary/90 text-white disabled:opacity-50 transition-all shadow-sm flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold uppercase cursor-pointer"
             >
               {addNoteMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
               <span>Guardar Nota</span>
@@ -293,15 +300,15 @@ export function LeadNotes({
         <div className="space-y-4">
           {/* Main notes (imported or initial registration) */}
           {lead.notes && (
-            <div className="bg-blue-50/30 p-5 rounded-2xl border border-blue-100/50 group relative">
+            <div className="bg-emerald-50/10 p-5 rounded-[12px] border border-emerald-100/40 group relative">
               <div className="flex items-center gap-2 mb-3">
-                <div className="w-6 h-6 rounded-lg bg-blue-100 flex items-center justify-center text-blue-600">
+                <div className="w-6 h-6 rounded-lg bg-emerald-100/80 flex items-center justify-center text-emerald-700">
                   <History size={14} />
                 </div>
-                <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Nota del Registro Principal</span>
+                <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider">Nota del Registro Principal</span>
               </div>
               <div dangerouslySetInnerHTML={{ __html: lead.notes }} className="rich-editor whitespace-pre-wrap text-slate-700 text-sm leading-relaxed" />
-              <div className="mt-4 pt-3 border-t border-blue-100/30 text-[10px] text-blue-400 font-medium italic">
+              <div className="mt-4 pt-3 border-t border-emerald-100/25 text-[10px] text-emerald-600/70 font-medium italic">
                 Esta nota fue guardada al momento de crear o importar el lead.
               </div>
             </div>
@@ -309,10 +316,10 @@ export function LeadNotes({
 
           {isLoading ? (
             <div className="flex items-center justify-center py-6">
-              <Loader2 className="animate-spin text-blue-600" />
+              <Loader2 className="animate-spin text-primary" />
             </div>
           ) : notes.length === 0 && !lead.notes ? (
-            <div className="text-center py-12 text-slate-400 border border-dashed border-slate-200/60 rounded-2xl bg-white/30">
+            <div className="text-center py-12 text-slate-400 border border-dashed border-slate-200/60 rounded-[12px] bg-white/30">
               <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-slate-100">
                 <FileText size={32} className="opacity-20" />
               </div>
@@ -322,12 +329,12 @@ export function LeadNotes({
             notes.map(note => (
               <div 
                 key={note.id} 
-                className="bg-white/60 p-5 rounded-2xl border border-slate-100/70 group hover:border-blue-100 hover:bg-blue-50/10 transition-all relative shadow-[0_4px_16px_rgba(0,0,0,0.01)]"
+                className="bg-white/60 p-4 rounded-[12px] border border-slate-200/60 group hover:border-primary/20 hover:bg-primary/[0.02] transition-all relative shadow-none"
               >
                 {(userRole === 'admin' || permissions.includes('manage_lead_content') || note.created_by === user?.id) && (
                   <button 
                     onClick={() => onDeleteNoteClick(note)}
-                    className="absolute top-4 right-4 p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all opacity-40 group-hover:opacity-100"
+                    className="absolute top-4 right-4 p-2 text-slate-400 hover:text-red-650 hover:bg-red-50 rounded-xl transition-all opacity-40 group-hover:opacity-100"
                     title="Eliminar nota"
                   >
                     <Trash2 size={16} />
@@ -343,18 +350,18 @@ export function LeadNotes({
                   <div className="flex items-center gap-2">
                     <Clock size={12} className="opacity-60" />
                     <span>
-                      {new Date(note.created_at).toLocaleString('es-ES', { 
+                      {mounted ? parseDate(note.created_at).toLocaleString('es-ES', { 
                         day: '2-digit', 
                         month: 'long', 
                         year: 'numeric', 
                         hour: '2-digit', 
                         minute: '2-digit' 
-                      })}
+                      }) : '...'}
                     </span>
                   </div>
                   {note.creator?.name && (
                     <div className="flex items-center gap-1">
-                      <User size={12} className="opacity-60 text-blue-500" />
+                      <User size={12} className="opacity-60 text-primary" />
                       <span>Por: {note.creator.name}</span>
                     </div>
                   )}

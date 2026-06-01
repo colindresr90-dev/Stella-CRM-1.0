@@ -4,7 +4,6 @@ import { useEffect, useState, use } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/lib/supabaseClient"
 import { getUserRole } from "@/lib/authHelper"
-import { createNotification } from "@/lib/notifications"
 import { 
   ArrowLeft, 
   Loader2, 
@@ -169,14 +168,6 @@ export default function CustomerDetailPage({ params }: PageProps) {
       if (!error && user && customer) {
         setSales(prev => prev.map(s => s.id === sale.id ? { ...s, status: 'pagado', pending_amount: 0, deposit_amount: sale.total_amount } : s))
         await insertActivity('payment_confirmed', `Pago completado para el paquete: ${sale.package}`)
-        
-        await createNotification({
-          user_id: user.id,
-          title: 'Pago Confirmado',
-          message: `Se ha completado el pago de $${sale.pending_amount} para ${customer.business_name}`,
-          type: 'update',
-          related_id: id
-        })
       }
     } catch (err) {
       console.error(err)
