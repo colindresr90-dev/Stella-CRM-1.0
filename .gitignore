@@ -54,3 +54,5 @@ media*.png
 diff_*.txt
 page_*.txt
 *.bak
+
+.vercel

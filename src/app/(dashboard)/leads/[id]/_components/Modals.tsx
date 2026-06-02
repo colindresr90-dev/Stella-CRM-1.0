@@ -1381,3 +1381,78 @@ export function FullMeetingsModal({
     </div>
   )
 }
+
+// ─── 10. NOTE CREATION MODAL ───
+export function NoteModal({
+  lead,
+  onClose,
+  onAddNote,
+  isSaving
+}: {
+  lead: Lead
+  onClose: () => void
+  onAddNote: (content: string) => void
+  isSaving: boolean
+}) {
+  const [content, setContent] = useState("")
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!content.trim()) return
+    onAddNote(content)
+  }
+
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 animate-in fade-in zoom-in-95 duration-200">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center">
+              <FileText size={20} className="text-blue-600" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-gray-900">Agregar Nota</h3>
+              <p className="text-xs text-gray-500">{lead.business_name}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1.5 hover:bg-gray-100 rounded-lg transition-colors border-none bg-transparent cursor-pointer">
+            <X size={18} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <textarea 
+              rows={4}
+              required
+              placeholder="Escribe la nota interna para el lead..."
+              className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none text-black resize-none"
+              value={content}
+              onChange={e => setContent(e.target.value)}
+            />
+          </div>
+
+          <div className="pt-4 flex flex-col gap-3">
+            <button 
+              type="submit"
+              disabled={isSaving || !content.trim()}
+              className="w-full py-3 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+            >
+              {isSaving ? <Loader2 size={18} className="animate-spin" /> : <CheckCircle size={18} />}
+              <span>Guardar Nota</span>
+            </button>
+            <button 
+              type="button"
+              onClick={onClose}
+              className="w-full py-3 text-gray-500 text-xs font-bold hover:bg-gray-100 rounded-xl transition-all border-none bg-transparent cursor-pointer"
+            >
+              Cancelar
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+

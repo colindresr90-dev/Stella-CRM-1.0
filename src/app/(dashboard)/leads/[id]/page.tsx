@@ -32,7 +32,8 @@ import {
   LossReasonModal,
   FullActivityModal,
   FullFilesModal,
-  FullMeetingsModal
+  FullMeetingsModal,
+  NoteModal
 } from "./_components/Modals"
 
 type PageProps = {
@@ -999,6 +1000,15 @@ export default function LeadDetailPage({ params }: PageProps) {
 
       {/* ─── MODALS CONTAINER ─── */}
       
+      {showAddNoteInline && (
+        <NoteModal
+          lead={lead}
+          onClose={() => setShowAddNoteInline(false)}
+          onAddNote={(content) => addNoteMutation.mutate(content)}
+          isSaving={addNoteMutation.isPending}
+        />
+      )}
+
       {showReminderModal && (
         <ReminderModal
           lead={lead}
