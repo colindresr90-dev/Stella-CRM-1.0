@@ -26,6 +26,14 @@ export async function POST(request: Request) {
       )
     }
 
+    const workerSecret = process.env.WORKER_SECRET
+    if (!workerSecret) {
+      return NextResponse.json(
+        { error: "Servidor no configurado: Falta WORKER_SECRET" },
+        { status: 500 }
+      )
+    }
+
     const t0 = performance.now()
 
     // Enqueue the job (~50ms DB insert) instead of blocking on SMTP (~2-5s)
@@ -45,7 +53,7 @@ export async function POST(request: Request) {
     const workerUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/api/jobs/email-worker`
     fetch(workerUrl, {
       method: "POST",
-      headers: { "x-worker-secret": process.env.WORKER_SECRET ?? "internal" },
+      headers: { "x-worker-secret": workerSecret },
     }).catch((e) => console.error("[email-queue] Worker kick failed:", e))
 
     const ms = (performance.now() - t0).toFixed(1)
